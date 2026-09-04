@@ -115,7 +115,7 @@ export default function DashboardPage() {
                   />
                   <Tooltip 
                     labelFormatter={(label) => formatTime(label as number)}
-                    formatter={(value: number) => [`${value}°C`, 'Temperature']}
+                    formatter={(value: any) => [`${value}°C`, 'Temperature']}
                   />
                   <ReferenceLine y={28} stroke="red" strokeDasharray="3 3" />
                   <ReferenceLine y={15} stroke="blue" strokeDasharray="3 3" />
