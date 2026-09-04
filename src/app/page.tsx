@@ -5,15 +5,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 export default function DashboardPage() {
-  const { temperature, mode, updateMode } = useGreenhouseSync();
+  const { temperature, mode, updateMode, extremes } = useGreenhouseSync();
 
   const isHighTemp = temperature > 28.0;
   const isVentOpen = mode === 'O' || (mode === 'A' && isHighTemp);
 
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
-    <div className="min-h-screen bg-neutral-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-neutral-100 flex flex-col items-center py-10 px-4 space-y-6">
+      
+      {/* Control Card */}
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader>
           <CardTitle className="text-2xl font-bold">Greenhouse Control</CardTitle>
@@ -84,6 +91,53 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Historical Extremes Chart */}
+      <Card className="w-full max-w-2xl shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-xl font-bold">Historical Extremes</CardTitle>
+          <CardDescription>Time-series log of temperatures outside normal range (&lt;15&deg;C or &gt;28&deg;C)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-64 w-full mt-4">
+            {extremes.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={extremes} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.5} />
+                  <XAxis 
+                    dataKey="timestamp" 
+                    tickFormatter={formatTime} 
+                    tick={{ fontSize: 12, fill: '#888' }}
+                  />
+                  <YAxis 
+                    domain={['auto', 'auto']} 
+                    tick={{ fontSize: 12, fill: '#888' }}
+                  />
+                  <Tooltip 
+                    labelFormatter={(label) => formatTime(label as number)}
+                    formatter={(value: number) => [`${value}°C`, 'Temperature']}
+                  />
+                  <ReferenceLine y={28} stroke="red" strokeDasharray="3 3" />
+                  <ReferenceLine y={15} stroke="blue" strokeDasharray="3 3" />
+                  <Line 
+                    type="monotone" 
+                    dataKey="temperature" 
+                    stroke="#171717" 
+                    strokeWidth={2}
+                    dot={{ r: 4, fill: '#171717' }} 
+                    activeDot={{ r: 6 }} 
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-neutral-400 text-sm">
+                No extreme temperatures recorded yet.
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
     </div>
   );
 }

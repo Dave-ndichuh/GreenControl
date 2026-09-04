@@ -10,6 +10,10 @@ const float thresholdTemp = 28.0;
 
 char mode = 'A'; // 'A' = Auto, 'O' = Open, 'C' = Close
 
+// Non-blocking timer variables
+unsigned long previousMillis = 0;
+const unsigned long sensorInterval = 5000; // 5 seconds between temperature pushes
+
 void setup() {
   Serial.begin(9600); // Open serial connection for Python
   lcd.begin(16, 2);
@@ -21,24 +25,39 @@ void setup() {
 }
 
 void loop() {
-  // 1. Check for incoming override commands from Python
+  // 1. Check for incoming override commands from Python IMMEDIATELY (non-blocking)
   if (Serial.available() > 0) {
     char incoming = Serial.read();
     if (incoming == 'O' || incoming == 'C' || incoming == 'A') {
       mode = incoming;
+      // Force an immediate update when mode changes to reflect instantly
+      updateActuators(readTemperature()); 
     }
   }
 
-  // 2. Read and convert sensor data
+  // 2. Read and push sensor data only at specified intervals
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= sensorInterval) {
+    previousMillis = currentMillis;
+    
+    float temperatureC = readTemperature();
+    
+    // Broadcast to Python
+    Serial.print("TEMP:");
+    Serial.println(temperatureC);
+
+    // Update LCD and Servo
+    updateActuators(temperatureC);
+  }
+}
+
+float readTemperature() {
   int rawValue = analogRead(lm35Pin);
   float voltage = (rawValue / 1024.0) * 5.0;
-  float temperatureC = voltage * 100.0;
+  return voltage * 100.0;
+}
 
-  // 3. Broadcast to Python
-  Serial.print("TEMP:");
-  Serial.println(temperatureC);
-
-  // 4. Update LCD and Servo based on mode
+void updateActuators(float temperatureC) {
   lcd.setCursor(0, 0);
   lcd.print("Temp: ");
   lcd.print(temperatureC, 1);
@@ -60,6 +79,4 @@ void loop() {
     ventServo.write(0);
     lcd.print("Vent: CLOSED(M)");
   }
-
-  delay(1000);
 }

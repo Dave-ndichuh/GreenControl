@@ -43,6 +43,11 @@ db.reference('greenhouse/mode').listen(handle_mode_change)
 print("Listening for sensor data and Firebase overrides... (Press Ctrl+C to quit)")
 
 # 4. Main Loop: Read serial from Arduino and push to Firebase
+EXTREME_HIGH = 28.0
+EXTREME_LOW = 15.0
+THROTTLE_INTERVAL = 60 # seconds
+last_extreme_log_time = 0
+
 try:
     while True:
         if arduino.in_waiting > 0:
@@ -54,6 +59,21 @@ try:
                     temperature = float(line.split(":")[1])
                     print(f"Arduino -> Firebase: {temperature} °C")
                     db.reference('greenhouse/temperature').set(temperature)
+                    
+                    # Check for extremes and log to history
+                    if temperature > EXTREME_HIGH or temperature < EXTREME_LOW:
+                        current_time = time.time()
+                        if current_time - last_extreme_log_time >= THROTTLE_INTERVAL:
+                            extreme_type = "HIGH" if temperature > EXTREME_HIGH else "LOW"
+                            # Push to a time-series list
+                            db.reference('greenhouse/history/extremes').push({
+                                'temperature': temperature,
+                                'type': extreme_type,
+                                'timestamp': int(current_time * 1000)
+                            })
+                            print(f"Logged historical extreme: {temperature}°C ({extreme_type})")
+                            last_extreme_log_time = current_time
+                            
                 except ValueError:
                     print(f"Malformed temperature reading: {line}")
         
