@@ -58,24 +58,32 @@ try:
                 try:
                     temperature = float(line.split(":")[1])
                     print(f"Arduino -> Firebase: {temperature} °C")
-                    db.reference('greenhouse/temperature').set(temperature)
+                    try:
+                        db.reference('greenhouse/temperature').set(temperature)
+                    except Exception as e:
+                        print(f"Network error pushing temperature: {e}")
                     
                     # Check for extremes and log to history
                     if temperature > EXTREME_HIGH or temperature < EXTREME_LOW:
                         current_time = time.time()
                         if current_time - last_extreme_log_time >= THROTTLE_INTERVAL:
                             extreme_type = "HIGH" if temperature > EXTREME_HIGH else "LOW"
-                            # Push to a time-series list
-                            db.reference('greenhouse/history/extremes').push({
-                                'temperature': temperature,
-                                'type': extreme_type,
-                                'timestamp': int(current_time * 1000)
-                            })
-                            print(f"Logged historical extreme: {temperature}°C ({extreme_type})")
-                            last_extreme_log_time = current_time
+                            try:
+                                # Push to a time-series list
+                                db.reference('greenhouse/history/extremes').push({
+                                    'temperature': temperature,
+                                    'type': extreme_type,
+                                    'timestamp': int(current_time * 1000)
+                                })
+                                print(f"Logged historical extreme: {temperature}°C ({extreme_type})")
+                                last_extreme_log_time = current_time
+                            except Exception as e:
+                                print(f"Network error logging extreme: {e}")
                             
                 except ValueError:
                     print(f"Malformed temperature reading: {line}")
+                except Exception as e:
+                    print(f"Network error pushing temperature: {e}")
         
         # Prevent maxing out the CPU
         time.sleep(0.1)
