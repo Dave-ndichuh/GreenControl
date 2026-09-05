@@ -3,73 +3,116 @@ import firebase_admin
 from firebase_admin import credentials, db
 import time
 import sys
+import threading
+from plyer import notification
 
-# 1. Initialize Firebase Admin SDK
-# You need to generate a private key from Firebase Console -> Project Settings -> Service Accounts
-# Save it as 'firebase-key.json' in the same directory as this script.
+# 1. Initialize Firebase
 try:
     cred = credentials.Certificate('firebase-key.json')
     firebase_admin.initialize_app(cred, {
-        # Update this URL to match your database URL from .env.local
         'databaseURL': 'https://greencontrol-c7fd5-default-rtdb.firebaseio.com'
     })
     print("Connected to Firebase!")
 except Exception as e:
-    print(f"Failed to initialize Firebase. Did you download the service account key? Error: {e}")
+    print(f"Failed to initialize Firebase: {e}")
     sys.exit(1)
 
-# 2. Connect to the Arduino UNO
-# UPDATE 'COM3' to whatever port your Arduino is connected to (e.g., 'COM4', '/dev/ttyACM0')
+# 2. Connect to Arduino
 COM_PORT = 'COM6'
 try:
     arduino = serial.Serial(COM_PORT, 9600, timeout=1)
     print(f"Connected to Arduino on {COM_PORT}")
-    time.sleep(2) # Give Arduino a moment to reset after serial connection
+    time.sleep(2)
 except Exception as e:
-    print(f"Failed to connect to Arduino on {COM_PORT}. Error: {e}")
+    print(f"Failed to connect to Arduino: {e}")
     sys.exit(1)
 
-# 3. Handle incoming mode changes from Firebase
+# 3. Firebase Listeners
 def handle_mode_change(event):
     if event.data:
         command = str(event.data).upper()
-        print(f"Received override from Firebase: {command}")
-        # Send 'A', 'O', or 'C' directly to the Arduino
-        arduino.write(command.encode())
+        print(f"Firebase Override: {command}")
+        arduino.write(f"{command}\n".encode())
 
-# Attach the listener to the manual override node
+def handle_threshold_change(event):
+    if event.data is not None:
+        val = float(event.data)
+        print(f"Firebase Threshold Update: {val}°C")
+        arduino.write(f"T:{val}\n".encode())
+
 db.reference('greenhouse/mode').listen(handle_mode_change)
+db.reference('greenhouse/threshold').listen(handle_threshold_change)
 
-print("Listening for sensor data and Firebase overrides... (Press Ctrl+C to quit)")
+# 4. Watchdog Ping Thread
+def ping_arduino():
+    while True:
+        try:
+            arduino.write(b"PING\n")
+        except:
+            pass
+        time.sleep(10) # Send ping every 10 seconds
 
-# 4. Main Loop: Read serial from Arduino and push to Firebase
+ping_thread = threading.Thread(target=ping_arduino, daemon=True)
+ping_thread.start()
+
+# 5. Main Loop
 EXTREME_HIGH = 28.0
 EXTREME_LOW = 15.0
-THROTTLE_INTERVAL = 60 # seconds
+ALERT_THRESHOLD = 32.0
+THROTTLE_INTERVAL = 60 # 1 min for db history
+ALERT_THROTTLE = 300 # 5 min for desktop notifications
+
 last_extreme_log_time = 0
+last_alert_time = 0
+
+print("Listening for sensor data and Firebase overrides... (Press Ctrl+C to quit)")
 
 try:
     while True:
         if arduino.in_waiting > 0:
             line = arduino.readline().decode('utf-8').strip()
             
-            # Look for the "TEMP:25.5" string pattern
-            if line.startswith("TEMP:"):
+            if line.startswith("VENT:"):
+                # Hardware ACK received
+                state = line.split(":")[1]
+                print(f"Hardware Confirmed Vent State: {state}")
+                try:
+                    db.reference('greenhouse/vent_state').set(state)
+                except Exception as e:
+                    pass
+
+            elif line.startswith("TEMP:"):
                 try:
                     temperature = float(line.split(":")[1])
                     print(f"Arduino -> Firebase: {temperature} °C")
+                    
                     try:
                         db.reference('greenhouse/temperature').set(temperature)
                     except Exception as e:
                         print(f"Network error pushing temperature: {e}")
                     
-                    # Check for extremes and log to history
+                    current_time = time.time()
+                    
+                    # Desktop Notification Alert (> 32C)
+                    if temperature > ALERT_THRESHOLD:
+                        if current_time - last_alert_time >= ALERT_THROTTLE:
+                            print(f"CRITICAL: Temperature reached {temperature}°C! Triggering OS Notification.")
+                            try:
+                                notification.notify(
+                                    title="Greenhouse CRITICAL Alert!",
+                                    message=f"Temperature has dangerously exceeded {ALERT_THRESHOLD}°C! Current: {temperature}°C",
+                                    app_name="GreenControl",
+                                    timeout=10
+                                )
+                                last_alert_time = current_time
+                            except Exception as e:
+                                print(f"Failed to show notification: {e}")
+
+                    # History Logging
                     if temperature > EXTREME_HIGH or temperature < EXTREME_LOW:
-                        current_time = time.time()
                         if current_time - last_extreme_log_time >= THROTTLE_INTERVAL:
                             extreme_type = "HIGH" if temperature > EXTREME_HIGH else "LOW"
                             try:
-                                # Push to a time-series list
                                 db.reference('greenhouse/history/extremes').push({
                                     'temperature': temperature,
                                     'type': extreme_type,
@@ -82,11 +125,8 @@ try:
                             
                 except ValueError:
                     print(f"Malformed temperature reading: {line}")
-                except Exception as e:
-                    print(f"Network error pushing temperature: {e}")
         
-        # Prevent maxing out the CPU
-        time.sleep(0.1)
+        time.sleep(0.05)
 
 except KeyboardInterrupt:
     print("Shutting down bridge...")
