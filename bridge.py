@@ -51,8 +51,11 @@ db.reference('greenhouse/threshold').listen(handle_threshold_change)
 def ping_arduino():
     while True:
         try:
-            # Send the heartbeat every 10 seconds
+            # Send the heartbeat every 10 seconds to Arduino
             arduino.write(b"PING\n")
+            # Send heartbeat to Dashboard
+            db.reference('greenhouse/bridge_status').set('ONLINE')
+            db.reference('greenhouse/last_seen').set(int(time.time() * 1000))
         except:
             pass
         time.sleep(10)
@@ -129,4 +132,8 @@ try:
 
 except KeyboardInterrupt:
     print("Shutting down bridge...")
+    try:
+        db.reference('greenhouse/bridge_status').set('OFFLINE')
+    except:
+        pass
     arduino.close()

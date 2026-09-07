@@ -18,6 +18,7 @@ export function useGreenhouseSync() {
   const [threshold, setThreshold] = useState<number>(28.0);
   const [ventState, setVentState] = useState<VentState>('UNKNOWN');
   const [history, setHistory] = useState<HistoryData[]>([]);
+  const [isBridgeOnline, setIsBridgeOnline] = useState<boolean>(false);
 
   // Listen to live temperature
   useEffect(() => {
@@ -59,6 +60,40 @@ export function useGreenhouseSync() {
     return () => unsubscribeVent();
   }, []);
 
+  // Bridge Heartbeat (Offline Detection)
+  useEffect(() => {
+    let lastSeen = Date.now();
+    
+    // Listen to explicit bridge_status
+    const statusRef = ref(database, 'greenhouse/bridge_status');
+    const unsubStatus = onValue(statusRef, (snapshot) => {
+      if (snapshot.val() === 'OFFLINE') setIsBridgeOnline(false);
+    });
+
+    // Listen to continuous heartbeat timestamps
+    const seenRef = ref(database, 'greenhouse/last_seen');
+    const unsubSeen = onValue(seenRef, (snapshot) => {
+      const val = snapshot.val();
+      if (typeof val === 'number') {
+        lastSeen = val;
+        setIsBridgeOnline(true);
+      }
+    });
+
+    // Interval to check if heartbeat has gone stale (>35 seconds)
+    const interval = setInterval(() => {
+      if (Date.now() - lastSeen > 35000) {
+        setIsBridgeOnline(false);
+      }
+    }, 5000);
+
+    return () => {
+      unsubStatus();
+      unsubSeen();
+      clearInterval(interval);
+    };
+  }, []);
+
   // Listen to historical data
   useEffect(() => {
     const historyRef = ref(database, 'greenhouse/temperature_history');
@@ -97,5 +132,5 @@ export function useGreenhouseSync() {
     }
   };
 
-  return { temperature, mode, updateMode, threshold, updateThreshold, ventState, history };
+  return { temperature, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline };
 }

@@ -10,7 +10,7 @@ import { Leaf, Thermometer, Wind, Settings2, AlertCircle, Activity, CheckCircle2
 import { useState, useEffect } from 'react';
 
 export default function DashboardPage() {
-  const { temperature, mode, updateMode, threshold, updateThreshold, ventState, history } = useGreenhouseSync();
+  const { temperature, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline } = useGreenhouseSync();
 
   // Local state for the slider to prevent lag while dragging
   const [localThreshold, setLocalThreshold] = useState(threshold);
@@ -34,16 +34,24 @@ export default function DashboardPage() {
             <span className="text-xl font-bold tracking-tight">GreenControl</span>
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">
+            <div className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-full ${isBridgeOnline ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 'text-red-700 bg-red-50 border border-red-200'}`}>
               <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                {isBridgeOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isBridgeOnline ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
               </span>
-              Live Sync
+              {isBridgeOnline ? 'Live Sync' : 'SYSTEM OFFLINE'}
             </div>
           </div>
         </div>
       </header>
+
+      {/* Offline Banner */}
+      {!isBridgeOnline && (
+        <div className="bg-red-600 text-white px-4 py-3 text-center text-sm font-medium flex items-center justify-center gap-2">
+          <AlertCircle className="h-4 w-4" />
+          Hardware Bridge is disconnected. Reverting to automatic failsafe mode.
+        </div>
+      )}
 
       <main className="max-w-6xl mx-auto px-4 py-8">
         
@@ -129,6 +137,7 @@ export default function DashboardPage() {
                   <Button 
                     variant={mode === 'A' ? "default" : "outline"} 
                     onClick={() => updateMode('A')}
+                    disabled={!isBridgeOnline}
                     className={`h-12 ${mode === 'A' ? 'bg-slate-900 hover:bg-slate-800' : 'text-slate-600 hover:text-slate-900 border-slate-200'}`}
                   >
                     <Settings2 className="h-4 w-4 mr-2" />
@@ -137,6 +146,7 @@ export default function DashboardPage() {
                   <Button 
                     variant={mode === 'O' ? "default" : "outline"} 
                     onClick={() => updateMode('O')}
+                    disabled={!isBridgeOnline}
                     className={`h-12 ${mode === 'O' ? 'bg-emerald-600 hover:bg-emerald-700' : 'text-slate-600 hover:text-emerald-700 hover:border-emerald-200 border-slate-200'}`}
                   >
                     Open
@@ -144,6 +154,7 @@ export default function DashboardPage() {
                   <Button 
                     variant={mode === 'C' ? "default" : "outline"} 
                     onClick={() => updateMode('C')}
+                    disabled={!isBridgeOnline}
                     className={`h-12 ${mode === 'C' ? 'bg-rose-600 hover:bg-rose-700' : 'text-slate-600 hover:text-rose-700 hover:border-rose-200 border-slate-200'}`}
                   >
                     Close
@@ -162,10 +173,11 @@ export default function DashboardPage() {
                     max="35" 
                     step="0.5"
                     value={localThreshold}
+                    disabled={!isBridgeOnline}
                     onChange={(e) => setLocalThreshold(parseFloat(e.target.value))}
                     onMouseUp={() => updateThreshold(localThreshold)}
                     onTouchEnd={() => updateThreshold(localThreshold)}
-                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                    className={`w-full h-2 rounded-lg appearance-none accent-emerald-500 ${isBridgeOnline ? 'bg-slate-200 cursor-pointer' : 'bg-slate-100 cursor-not-allowed opacity-50'}`}
                   />
                   <p className="text-xs text-slate-400 mt-2">
                     In Auto mode, vents open when temp &gt; {localThreshold.toFixed(1)}&deg;C.

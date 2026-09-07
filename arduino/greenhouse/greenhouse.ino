@@ -115,9 +115,15 @@ void loop() {
   lcd.print(" C   ");
 
   lcd.setCursor(0, 1);
-  if (mode == 'A') lcd.print("Mode: AUTO   ");
-  else if (mode == 'O') lcd.print("Mode: O-RIDE ");
-  else if (mode == 'C') lcd.print("Mode: C-RIDE ");
+  if (!isConnected) {
+    lcd.print("SYS: OFFLINE ");
+  } else if (mode == 'A') {
+    lcd.print("Mode: AUTO   ");
+  } else if (mode == 'O') {
+    lcd.print("Mode: O-RIDE ");
+  } else if (mode == 'C') {
+    lcd.print("Mode: C-RIDE ");
+  }
 
   // 8. Visual and Audible Alarms
   digitalWrite(greenLedPin, isConnected ? HIGH : LOW);
