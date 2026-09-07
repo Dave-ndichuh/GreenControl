@@ -3,6 +3,7 @@ import firebase_admin
 from firebase_admin import credentials, db
 import time
 import threading
+import sys
 from datetime import datetime
 from plyer import notification
 
@@ -19,13 +20,14 @@ except Exception as e:
 
 # Connect to the UNO (Updated to COM6)
 COM_PORT = 'COM6'
+arduino = None
 try:
     arduino = serial.Serial(COM_PORT, 9600, timeout=1)
     print(f"Connected to Arduino on {COM_PORT}")
     time.sleep(2)
 except Exception as e:
-    print(f"Failed to connect to Arduino on {COM_PORT}: {e}")
-    sys.exit(1)
+    print(f"[WARNING] Could not open {COM_PORT} on startup. Is the Arduino Serial Monitor open?")
+    print("Bridge will stay alive and auto-connect as soon as the port is released!")
 
 # --- GLOBAL TOGGLE ---
 bridge_enabled = True
