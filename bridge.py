@@ -103,74 +103,89 @@ ALERT_THRESHOLD = 32.0
 
 try:
     while True:
-        if arduino.in_waiting > 0:
-            try:
-                line = arduino.readline().decode('utf-8').strip()
-                
-                # 1. Handle Live Temperature & Time-Series Logging
-                if line.startswith("TEMP:"):
-                    temperature = float(line.split(":")[1])
-                    print(f"Arduino -> PC: {temperature} °C")
+        try:
+            if arduino.in_waiting > 0:
+                try:
+                    line = arduino.readline().decode('utf-8').strip()
                     
-                    if bridge_enabled:
-                        try:
-                            db.reference('greenhouse/temperature_live').set(temperature)
-                        except Exception as e:
-                            print(f"Network error pushing temperature: {e}")
-                    
-                    # Local OS Desktop Notification for critical temps (still works even if paused)
-                    current_time = time.time()
-                    if temperature >= ALERT_THRESHOLD:
-                        if current_time - last_alert_time >= 300: # 5 min throttle
-                            print(f"CRITICAL: Temperature reached {temperature}°C! Triggering OS Notification.")
+                    # 1. Handle Live Temperature & Time-Series Logging
+                    if line.startswith("TEMP:"):
+                        temperature = float(line.split(":")[1])
+                        print(f"Arduino -> PC: {temperature} °C")
+                        
+                        if bridge_enabled:
                             try:
-                                notification.notify(
-                                    title="Greenhouse CRITICAL Alert!",
-                                    message=f"Temperature has reached {temperature}°C (Threshold: {ALERT_THRESHOLD}°C)",
-                                    app_name="GreenControl",
-                                    timeout=10
-                                )
-                                last_alert_time = current_time
+                                db.reference('greenhouse/temperature_live').set(temperature)
                             except Exception as e:
-                                print(f"Failed to show OS notification: {e}")
+                                print(f"Network error pushing temperature: {e}")
+                        
+                        # Local OS Desktop Notification for critical temps (still works even if paused)
+                        current_time = time.time()
+                        if temperature >= ALERT_THRESHOLD:
+                            if current_time - last_alert_time >= 300: # 5 min throttle
+                                print(f"CRITICAL: Temperature reached {temperature}°C! Triggering OS Notification.")
+                                try:
+                                    notification.notify(
+                                        title="Greenhouse CRITICAL Alert!",
+                                        message=f"Temperature has reached {temperature}°C (Threshold: {ALERT_THRESHOLD}°C)",
+                                        app_name="GreenControl",
+                                        timeout=10
+                                    )
+                                    last_alert_time = current_time
+                                except Exception as e:
+                                    print(f"Failed to show OS notification: {e}")
 
-                    # Log historical data every 5 minutes (300 seconds)
-                    if bridge_enabled and (current_time - last_log_time >= 300):
-                        try:
-                            db.reference('greenhouse/temperature_history').push({
-                                'temp': temperature,
-                                'timestamp': int(current_time * 1000),
-                                'human_readable': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            })
-                            print(f"Logged historical temperature: {temperature}°C")
-                            last_log_time = current_time
-                        except Exception as e:
-                            print(f"Network error logging history: {e}")
+                        # Log historical data every 5 minutes (300 seconds)
+                        if bridge_enabled and (current_time - last_log_time >= 300):
+                            try:
+                                db.reference('greenhouse/temperature_history').push({
+                                    'temp': temperature,
+                                    'timestamp': int(current_time * 1000),
+                                    'human_readable': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                })
+                                print(f"Logged historical temperature: {temperature}°C")
+                                last_log_time = current_time
+                            except Exception as e:
+                                print(f"Network error logging history: {e}")
 
-                # 2. Handle Hardware Vent Confirmations (ACK)
-                elif line.startswith("VENT:"):
-                    vent_status = line.split(":")[1] # Will be "OPEN" or "CLOSED"
-                    print(f"Hardware ACK Received: Vent is {vent_status}")
+                    # 2. Handle Hardware Vent Confirmations (ACK)
+                    elif line.startswith("VENT:"):
+                        vent_status = line.split(":")[1] # Will be "OPEN" or "CLOSED"
+                        print(f"Hardware ACK Received: Vent is {vent_status}")
+                        
+                        if bridge_enabled:
+                            try:
+                                db.reference('greenhouse/vent_state').set(vent_status)
+                            except Exception as e:
+                                print(f"Network error pushing vent state: {e}")
+
+                    # 3. Handle Local IR Remote Overrides
+                    elif line.startswith("SYNC_MODE:"):
+                        new_mode = line.split(":")[1]
+                        print(f"Hardware Override: Synced mode {new_mode} to Cloud")
+                        
+                        if bridge_enabled:
+                            try:
+                                db.reference('greenhouse/mode').set(new_mode)
+                            except Exception as e:
+                                print(f"Network error pushing mode: {e}")
+                                
+                except Exception as e:
+                    print(f"Serial read parsing error: {e}")
                     
-                    if bridge_enabled:
-                        try:
-                            db.reference('greenhouse/vent_state').set(vent_status)
-                        except Exception as e:
-                            print(f"Network error pushing vent state: {e}")
-
-                # 3. Handle Local IR Remote Overrides
-                elif line.startswith("SYNC_MODE:"):
-                    new_mode = line.split(":")[1]
-                    print(f"Hardware Override: Synced mode {new_mode} to Cloud")
-                    
-                    if bridge_enabled:
-                        try:
-                            db.reference('greenhouse/mode').set(new_mode)
-                        except Exception as e:
-                            print(f"Network error pushing mode: {e}")
-                            
+        except serial.SerialException as se:
+            print(f"\n[ERROR] Serial connection lost (Access Denied / Unplugged).")
+            print("Attempting to auto-reconnect in 5 seconds...")
+            try:
+                arduino.close()
+            except:
+                pass
+            time.sleep(5)
+            try:
+                arduino = serial.Serial(COM_PORT, 9600, timeout=1)
+                print(f"[SYSTEM] Successfully reconnected to {COM_PORT}!\n")
             except Exception as e:
-                print(f"Serial read error: {e}")
+                print(f"[ERROR] Reconnect failed. Will try again... ({e})")
                 
         time.sleep(0.01) # Prevent 100% CPU usage
 
