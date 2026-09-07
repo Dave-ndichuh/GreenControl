@@ -157,7 +157,18 @@ try:
                             db.reference('greenhouse/vent_state').set(vent_status)
                         except Exception as e:
                             print(f"Network error pushing vent state: {e}")
+
+                # 3. Handle Local IR Remote Overrides
+                elif line.startswith("SYNC_MODE:"):
+                    new_mode = line.split(":")[1]
+                    print(f"Hardware Override: Synced mode {new_mode} to Cloud")
                     
+                    if bridge_enabled:
+                        try:
+                            db.reference('greenhouse/mode').set(new_mode)
+                        except Exception as e:
+                            print(f"Network error pushing mode: {e}")
+                            
             except Exception as e:
                 print(f"Serial read error: {e}")
                 

@@ -1,11 +1,13 @@
 #include <LiquidCrystal.h>
 #include <Servo.h>
+#include <IRremote.h> // Requires IRremote library
 
 // --- Pin Definitions ---
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 Servo ventServo;
 
 const int lm35Pin = A0;
+const int irReceiverPin = A1; // IR sensor input
 const int servoPin = 9;
 const int greenLedPin = 6;
 const int blueLedPin = 7;
@@ -15,13 +17,13 @@ const int buzzerPin = 10;
 // --- State Variables ---
 float thresholdTemp = 28.0; 
 const float criticalTemp = 32.0;
-char mode = 'A'; // 'A' = Auto, 'O' = Open, 'C' = Close
+char mode = 'A'; 
 bool isVentOpen = false;
 bool lastVentState = false;
 
 // --- Watchdog Variables ---
 unsigned long lastPingTime = 0;
-const unsigned long watchdogTimeout = 30000; // 30 seconds
+const unsigned long watchdogTimeout = 30000;
 
 void setup() {
   Serial.begin(9600);
@@ -33,28 +35,55 @@ void setup() {
   pinMode(redLedPin, OUTPUT);
   pinMode(buzzerPin, OUTPUT);
   
-  // Initial state
+  // Initialize IR Receiver
+  IrReceiver.begin(irReceiverPin, ENABLE_LED_FEEDBACK);
+  
   ventServo.write(0);
   lcd.print("BomaLink Node OS");
   delay(2000);
   lcd.clear();
-  lastPingTime = millis(); // Start the watchdog timer
+  lastPingTime = millis();
 }
 
-// Helper: 10-point moving average to filter LM35 voltage jitter
 float getFilteredTemperature() {
   long sum = 0;
   for (int i = 0; i < 10; i++) {
     sum += analogRead(lm35Pin);
-    delay(10); // 100ms total read time
+    delay(10);
   }
   float avgRaw = sum / 10.0;
   float voltage = (avgRaw / 1024.0) * 5.0;
   return voltage * 100.0;
 }
 
+// Helper: Sync mode back to Python/Firebase
+void updateModeLocally(char newMode) {
+  if (mode != newMode) {
+    mode = newMode;
+    Serial.print("SYNC_MODE:");
+    Serial.println(mode);
+    
+    // Quick beep for physical confirmation
+    tone(buzzerPin, 2000);
+    delay(100);
+    noTone(buzzerPin);
+  }
+}
+
 void loop() {
-  // 1. Process Incoming Serial Commands from Python
+  // 1. Process IR Remote Commands
+  if (IrReceiver.decode()) {
+    // These command hex values match standard starter kit remotes (NEC protocol)
+    // 0x45 = Button 1, 0x46 = Button 2, 0x47 = Button 3
+    switch (IrReceiver.decodedIRData.command) {
+      case 0x45: updateModeLocally('A'); break;
+      case 0x46: updateModeLocally('O'); break;
+      case 0x47: updateModeLocally('C'); break;
+    }
+    IrReceiver.resume(); // Ready for next button press
+  }
+
+  // 2. Process Incoming Serial Commands from Python
   if (Serial.available() > 0) {
     String incoming = Serial.readStringUntil('\n');
     incoming.trim();
@@ -72,16 +101,14 @@ void loop() {
     }
   }
 
-  // 2. Watchdog Failsafe
+  // 3. Watchdog Failsafe
   bool isConnected = (millis() - lastPingTime) < watchdogTimeout;
   if (!isConnected && mode != 'A') {
-    mode = 'A'; // Force auto mode if bridge disconnects
+    updateModeLocally('A'); 
   }
 
-  // 3. Read Filtered Sensor Data
+  // 4. Read Sensor & Broadcast Live Data
   float temperatureC = getFilteredTemperature();
-
-  // 4. Broadcast live data for the dashboard
   Serial.print("TEMP:");
   Serial.println(temperatureC);
 
@@ -98,13 +125,10 @@ void loop() {
     ventServo.write(0);
   }
 
-  // 6. Hardware ACK: Broadcast state changes to Python
+  // 6. Hardware ACK
   if (isVentOpen != lastVentState) {
-    if (isVentOpen) {
-      Serial.println("VENT:OPEN");
-    } else {
-      Serial.println("VENT:CLOSED");
-    }
+    if (isVentOpen) Serial.println("VENT:OPEN");
+    else Serial.println("VENT:CLOSED");
     lastVentState = isVentOpen;
   }
 
@@ -125,22 +149,19 @@ void loop() {
     lcd.print("Mode: C-RIDE ");
   }
 
-  // 8. Visual and Audible Alarms
+  // 8. Alarms
   digitalWrite(greenLedPin, isConnected ? HIGH : LOW);
   digitalWrite(blueLedPin, isVentOpen ? HIGH : LOW);
 
-  bool isCritical = (temperatureC >= criticalTemp);
-  
-  if (isCritical || !isConnected) {
+  if (temperatureC >= criticalTemp || !isConnected) {
     digitalWrite(redLedPin, HIGH);
-    // Beep the buzzer
     tone(buzzerPin, 1000);
     delay(200);
     noTone(buzzerPin);
-    delay(700); // Pad the rest of the 1-second loop
+    delay(700); 
   } else {
     digitalWrite(redLedPin, LOW);
     noTone(buzzerPin);
-    delay(900); // Standard loop padding
+    delay(900); 
   }
 }
