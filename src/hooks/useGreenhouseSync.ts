@@ -3,80 +3,99 @@ import { ref, onValue, set } from 'firebase/database';
 import { database } from '@/lib/firebase';
 
 export type Mode = 'A' | 'O' | 'C';
+export type VentState = 'OPEN' | 'CLOSED' | 'UNKNOWN';
 
-export interface ExtremeData {
+export interface HistoryData {
   id: string;
-  temperature: number;
-  type: 'HIGH' | 'LOW';
+  temp: number;
   timestamp: number;
+  human_readable: string;
 }
 
 export function useGreenhouseSync() {
   const [temperature, setTemperature] = useState<number>(0);
   const [mode, setMode] = useState<Mode>('A');
-  const [extremes, setExtremes] = useState<ExtremeData[]>([]);
+  const [threshold, setThreshold] = useState<number>(28.0);
+  const [ventState, setVentState] = useState<VentState>('UNKNOWN');
+  const [history, setHistory] = useState<HistoryData[]>([]);
 
-  // Listen to temperature
+  // Listen to live temperature
   useEffect(() => {
-    const tempRef = ref(database, 'greenhouse/temperature');
-    
+    const tempRef = ref(database, 'greenhouse/temperature_live');
     const unsubscribeTemp = onValue(tempRef, (snapshot) => {
       const val = snapshot.val();
-      if (typeof val === 'number') {
-        setTemperature(val);
-      }
+      if (typeof val === 'number') setTemperature(val);
     });
-
     return () => unsubscribeTemp();
   }, []);
 
-  // Listen to mode from Firebase
+  // Listen to mode
   useEffect(() => {
     const modeRef = ref(database, 'greenhouse/mode');
-    
     const unsubscribeMode = onValue(modeRef, (snapshot) => {
       const val = snapshot.val();
-      if (val === 'A' || val === 'O' || val === 'C') {
-        setMode(val as Mode);
-      }
+      if (val === 'A' || val === 'O' || val === 'C') setMode(val as Mode);
     });
-
     return () => unsubscribeMode();
   }, []);
 
-  // Listen to historical extremes
+  // Listen to dynamic threshold
   useEffect(() => {
-    const extremesRef = ref(database, 'greenhouse/history/extremes');
-    
-    const unsubscribeExtremes = onValue(extremesRef, (snapshot) => {
+    const thresholdRef = ref(database, 'greenhouse/threshold');
+    const unsubscribeThreshold = onValue(thresholdRef, (snapshot) => {
+      const val = snapshot.val();
+      if (typeof val === 'number') setThreshold(val);
+    });
+    return () => unsubscribeThreshold();
+  }, []);
+
+  // Listen to hardware vent state (ACK)
+  useEffect(() => {
+    const ventRef = ref(database, 'greenhouse/vent_state');
+    const unsubscribeVent = onValue(ventRef, (snapshot) => {
+      const val = snapshot.val();
+      if (val === 'OPEN' || val === 'CLOSED') setVentState(val as VentState);
+    });
+    return () => unsubscribeVent();
+  }, []);
+
+  // Listen to historical data
+  useEffect(() => {
+    const historyRef = ref(database, 'greenhouse/temperature_history');
+    const unsubscribeHistory = onValue(historyRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        // Convert object to array and sort by timestamp
-        const extremesArray = Object.keys(data).map(key => ({
+        const historyArray = Object.keys(data).map(key => ({
           id: key,
           ...data[key]
         })).sort((a, b) => a.timestamp - b.timestamp);
         
-        setExtremes(extremesArray);
+        // Keep only the last 100 points for performance
+        setHistory(historyArray.slice(-100));
       } else {
-        setExtremes([]);
+        setHistory([]);
       }
     });
-
-    return () => unsubscribeExtremes();
+    return () => unsubscribeHistory();
   }, []);
 
   const updateMode = async (newMode: Mode) => {
-    // Optimistic UI update
     setMode(newMode);
-    
-    const modeRef = ref(database, 'greenhouse/mode');
     try {
-      await set(modeRef, newMode);
+      await set(ref(database, 'greenhouse/mode'), newMode);
     } catch (error) {
       console.error('Failed to update mode in Firebase:', error);
     }
   };
 
-  return { temperature, mode, updateMode, extremes };
+  const updateThreshold = async (newThreshold: number) => {
+    setThreshold(newThreshold);
+    try {
+      await set(ref(database, 'greenhouse/threshold'), newThreshold);
+    } catch (error) {
+      console.error('Failed to update threshold in Firebase:', error);
+    }
+  };
+
+  return { temperature, mode, updateMode, threshold, updateThreshold, ventState, history };
 }

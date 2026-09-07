@@ -1,18 +1,23 @@
 'use client';
 
-import { useGreenhouseSync, Mode } from '@/hooks/useGreenhouseSync';
+import { useGreenhouseSync } from '@/hooks/useGreenhouseSync';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Leaf, Thermometer, Wind, Settings2, AlertCircle, Activity } from 'lucide-react';
+import { Leaf, Thermometer, Wind, Settings2, AlertCircle, Activity, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 export default function DashboardPage() {
-  const { temperature, mode, updateMode, extremes } = useGreenhouseSync();
+  const { temperature, mode, updateMode, threshold, updateThreshold, ventState, history } = useGreenhouseSync();
 
-  const isHighTemp = temperature > 28.0;
-  const isVentOpen = mode === 'O' || (mode === 'A' && isHighTemp);
+  // Local state for the slider to prevent lag while dragging
+  const [localThreshold, setLocalThreshold] = useState(threshold);
+  useEffect(() => setLocalThreshold(threshold), [threshold]);
+
+  const isHighTemp = temperature > threshold;
+  const isCritical = temperature >= 32.0;
 
   const formatTime = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -55,7 +60,7 @@ export default function DashboardPage() {
             
             {/* Temperature Card */}
             <Card className="shadow-sm border-slate-200 overflow-hidden">
-              <div className={`h-2 w-full ${isHighTemp ? 'bg-red-500' : 'bg-emerald-500'}`} />
+              <div className={`h-2 w-full ${isCritical ? 'bg-red-600' : isHighTemp ? 'bg-amber-500' : 'bg-emerald-500'}`} />
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2 text-slate-700">
                   <Thermometer className="h-5 w-5" />
@@ -64,7 +69,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-baseline gap-2 my-4">
-                  <span className={`text-6xl font-black tracking-tighter ${isHighTemp ? 'text-red-600' : 'text-slate-900'}`}>
+                  <span className={`text-6xl font-black tracking-tighter ${isCritical ? 'text-red-600' : isHighTemp ? 'text-amber-500' : 'text-slate-900'}`}>
                     {temperature.toFixed(1)}
                   </span>
                   <span className="text-2xl font-bold text-slate-400">&deg;C</span>
@@ -72,13 +77,17 @@ export default function DashboardPage() {
                 
                 <Progress 
                   value={Math.min((temperature / 50) * 100, 100)} 
-                  className={`h-2 mb-2 ${isHighTemp ? '[&>div]:bg-red-500' : '[&>div]:bg-emerald-500'}`} 
+                  className={`h-2 mb-2 ${isCritical ? '[&>div]:bg-red-600' : isHighTemp ? '[&>div]:bg-amber-500' : '[&>div]:bg-emerald-500'}`} 
                 />
                 
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500 font-medium">Status:</span>
-                  {isHighTemp ? (
-                    <span className="text-red-600 flex items-center gap-1 font-semibold">
+                  {isCritical ? (
+                    <span className="text-red-600 flex items-center gap-1 font-bold">
+                      <AlertCircle className="h-4 w-4" /> CRITICAL
+                    </span>
+                  ) : isHighTemp ? (
+                    <span className="text-amber-500 flex items-center gap-1 font-semibold">
                       <AlertCircle className="h-3.5 w-3.5" /> High Temp
                     </span>
                   ) : (
@@ -98,14 +107,18 @@ export default function DashboardPage() {
                     <Wind className="h-5 w-5" />
                     Ventilation
                   </CardTitle>
+                  
+                  {/* Hardware ACK Badge */}
                   <Badge 
-                    className={`uppercase tracking-widest text-[10px] px-2 py-0.5 border-transparent shadow-none ${
-                      isVentOpen 
+                    className={`uppercase tracking-widest text-[10px] px-2 py-0.5 border-transparent shadow-none flex items-center gap-1 ${
+                      ventState === 'OPEN' 
                         ? "bg-emerald-100 text-emerald-700" 
-                        : "bg-slate-100 text-slate-600"
+                        : ventState === 'CLOSED' ? "bg-slate-100 text-slate-600"
+                        : "bg-amber-100 text-amber-700"
                     }`}
                   >
-                    {isVentOpen ? "Vent Open" : "Vent Closed"}
+                    {ventState !== 'UNKNOWN' && <CheckCircle2 className="h-3 w-3" />}
+                    {ventState === 'UNKNOWN' ? 'Waiting...' : `Vent ${ventState}`}
                   </Badge>
                 </div>
                 <CardDescription>Actuator override controls</CardDescription>
@@ -137,10 +150,28 @@ export default function DashboardPage() {
                   </Button>
                 </div>
                 
-                <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 border border-slate-100 flex items-start gap-2">
-                  <Activity className="h-4 w-4 text-slate-400 shrink-0 mt-0.5" />
-                  <p>In <strong>Auto</strong> mode, the roof louvers will automatically actuate open when the temperature exceeds 28.0&deg;C.</p>
+                {/* Dynamic Threshold Slider */}
+                <div className="pt-4 border-t border-slate-100">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-sm font-medium text-slate-700">Auto Trigger Threshold</label>
+                    <span className="text-sm font-bold text-slate-900">{localThreshold.toFixed(1)}&deg;C</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="20" 
+                    max="35" 
+                    step="0.5"
+                    value={localThreshold}
+                    onChange={(e) => setLocalThreshold(parseFloat(e.target.value))}
+                    onMouseUp={() => updateThreshold(localThreshold)}
+                    onTouchEnd={() => updateThreshold(localThreshold)}
+                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  />
+                  <p className="text-xs text-slate-400 mt-2">
+                    In Auto mode, vents open when temp &gt; {localThreshold.toFixed(1)}&deg;C.
+                  </p>
                 </div>
+
               </CardContent>
             </Card>
 
@@ -152,16 +183,16 @@ export default function DashboardPage() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2 text-slate-700">
                   <Activity className="h-5 w-5" />
-                  Historical Extremes
+                  Temperature History
                 </CardTitle>
                 <CardDescription>
-                  Time-series log of recorded temperature anomalies (&lt;15&deg;C or &gt;28&deg;C).
+                  Time-series log recorded every 5 minutes.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex-1 min-h-[400px]">
-                {extremes.length > 0 ? (
+                {history.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={extremes} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <LineChart data={history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <XAxis 
                         dataKey="timestamp" 
@@ -183,14 +214,14 @@ export default function DashboardPage() {
                         formatter={(value: any) => [`${value}°C`, 'Temperature']}
                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                       />
-                      <ReferenceLine y={28} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: 'High (28°C)', fill: '#ef4444', fontSize: 10 }} />
-                      <ReferenceLine y={15} stroke="#3b82f6" strokeDasharray="3 3" label={{ position: 'bottom', value: 'Low (15°C)', fill: '#3b82f6', fontSize: 10 }} />
+                      {/* Dynamic Reference Line from slider */}
+                      <ReferenceLine y={threshold} stroke="#f59e0b" strokeDasharray="3 3" label={{ position: 'top', value: `Threshold (${threshold}°C)`, fill: '#f59e0b', fontSize: 10 }} />
                       <Line 
                         type="monotone" 
-                        dataKey="temperature" 
+                        dataKey="temp" 
                         stroke="#0f172a" 
                         strokeWidth={2}
-                        dot={{ r: 4, fill: '#0f172a', strokeWidth: 0 }} 
+                        dot={{ r: 3, fill: '#0f172a', strokeWidth: 0 }} 
                         activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} 
                       />
                     </LineChart>
@@ -198,7 +229,7 @@ export default function DashboardPage() {
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 m-2">
                     <Activity className="h-8 w-8 text-slate-300" />
-                    <p className="text-sm font-medium">No temperature extremes recorded.</p>
+                    <p className="text-sm font-medium">Waiting for historical data...</p>
                   </div>
                 )}
               </CardContent>

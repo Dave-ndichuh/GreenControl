@@ -2,11 +2,11 @@ import serial
 import firebase_admin
 from firebase_admin import credentials, db
 import time
-import sys
 import threading
+from datetime import datetime
 from plyer import notification
 
-# 1. Initialize Firebase
+# Initialize Firebase (requires service account key JSON)
 try:
     cred = credentials.Certificate('firebase-key.json')
     firebase_admin.initialize_app(cred, {
@@ -17,116 +17,115 @@ except Exception as e:
     print(f"Failed to initialize Firebase: {e}")
     sys.exit(1)
 
-# 2. Connect to Arduino
+# Connect to the UNO (Updated to COM6)
 COM_PORT = 'COM6'
 try:
     arduino = serial.Serial(COM_PORT, 9600, timeout=1)
     print(f"Connected to Arduino on {COM_PORT}")
     time.sleep(2)
 except Exception as e:
-    print(f"Failed to connect to Arduino: {e}")
+    print(f"Failed to connect to Arduino on {COM_PORT}: {e}")
     sys.exit(1)
 
-# 3. Firebase Listeners
+# --- FIREBASE LISTENERS (Cloud -> Arduino) ---
+
 def handle_mode_change(event):
     if event.data:
-        command = str(event.data).upper()
-        print(f"Firebase Override: {command}")
-        arduino.write(f"{command}\n".encode())
+        # The Arduino expects strings ending in a newline character
+        command = str(event.data).upper() + '\n'
+        arduino.write(command.encode('utf-8'))
+        print(f"Sent Mode Override: {command.strip()}")
 
 def handle_threshold_change(event):
     if event.data is not None:
-        val = float(event.data)
-        print(f"Firebase Threshold Update: {val}°C")
-        arduino.write(f"T:{val}\n".encode())
+        # Send dynamic threshold as "T:28.5\n"
+        command = f"T:{event.data}\n"
+        arduino.write(command.encode('utf-8'))
+        print(f"Sent New Threshold: {command.strip()}")
 
+# Attach listeners
 db.reference('greenhouse/mode').listen(handle_mode_change)
 db.reference('greenhouse/threshold').listen(handle_threshold_change)
 
-# 4. Watchdog Ping Thread
+# --- WATCHDOG PING THREAD ---
 def ping_arduino():
     while True:
         try:
+            # Send the heartbeat every 10 seconds
             arduino.write(b"PING\n")
         except:
             pass
-        time.sleep(10) # Send ping every 10 seconds
+        time.sleep(10)
 
+# Start ping thread in the background
 ping_thread = threading.Thread(target=ping_arduino, daemon=True)
 ping_thread.start()
 
-# 5. Main Loop
-EXTREME_HIGH = 28.0
-EXTREME_LOW = 15.0
-ALERT_THRESHOLD = 32.0
-THROTTLE_INTERVAL = 60 # 1 min for db history
-ALERT_THROTTLE = 300 # 5 min for desktop notifications
+print("Bridge active. Listening to Arduino... (Press Ctrl+C to quit)")
 
-last_extreme_log_time = 0
+# --- MAIN LOOP (Arduino -> Cloud) ---
+last_log_time = time.time()
 last_alert_time = 0
-
-print("Listening for sensor data and Firebase overrides... (Press Ctrl+C to quit)")
+ALERT_THRESHOLD = 32.0
 
 try:
     while True:
         if arduino.in_waiting > 0:
-            line = arduino.readline().decode('utf-8').strip()
-            
-            if line.startswith("VENT:"):
-                # Hardware ACK received
-                state = line.split(":")[1]
-                print(f"Hardware Confirmed Vent State: {state}")
-                try:
-                    db.reference('greenhouse/vent_state').set(state)
-                except Exception as e:
-                    pass
-
-            elif line.startswith("TEMP:"):
-                try:
+            try:
+                line = arduino.readline().decode('utf-8').strip()
+                
+                # 1. Handle Live Temperature & Time-Series Logging
+                if line.startswith("TEMP:"):
                     temperature = float(line.split(":")[1])
                     print(f"Arduino -> Firebase: {temperature} °C")
                     
                     try:
-                        db.reference('greenhouse/temperature').set(temperature)
+                        db.reference('greenhouse/temperature_live').set(temperature)
                     except Exception as e:
                         print(f"Network error pushing temperature: {e}")
                     
+                    # Local OS Desktop Notification for critical temps
                     current_time = time.time()
-                    
-                    # Desktop Notification Alert (> 32C)
-                    if temperature > ALERT_THRESHOLD:
-                        if current_time - last_alert_time >= ALERT_THROTTLE:
+                    if temperature >= ALERT_THRESHOLD:
+                        if current_time - last_alert_time >= 300: # 5 min throttle
                             print(f"CRITICAL: Temperature reached {temperature}°C! Triggering OS Notification.")
                             try:
                                 notification.notify(
                                     title="Greenhouse CRITICAL Alert!",
-                                    message=f"Temperature has dangerously exceeded {ALERT_THRESHOLD}°C! Current: {temperature}°C",
+                                    message=f"Temperature has reached {temperature}°C (Threshold: {ALERT_THRESHOLD}°C)",
                                     app_name="GreenControl",
                                     timeout=10
                                 )
                                 last_alert_time = current_time
                             except Exception as e:
-                                print(f"Failed to show notification: {e}")
+                                print(f"Failed to show OS notification: {e}")
 
-                    # History Logging
-                    if temperature > EXTREME_HIGH or temperature < EXTREME_LOW:
-                        if current_time - last_extreme_log_time >= THROTTLE_INTERVAL:
-                            extreme_type = "HIGH" if temperature > EXTREME_HIGH else "LOW"
-                            try:
-                                db.reference('greenhouse/history/extremes').push({
-                                    'temperature': temperature,
-                                    'type': extreme_type,
-                                    'timestamp': int(current_time * 1000)
-                                })
-                                print(f"Logged historical extreme: {temperature}°C ({extreme_type})")
-                                last_extreme_log_time = current_time
-                            except Exception as e:
-                                print(f"Network error logging extreme: {e}")
-                            
-                except ValueError:
-                    print(f"Malformed temperature reading: {line}")
-        
-        time.sleep(0.05)
+                    # Log historical data every 5 minutes (300 seconds)
+                    if current_time - last_log_time >= 300:
+                        try:
+                            db.reference('greenhouse/temperature_history').push({
+                                'temp': temperature,
+                                'timestamp': int(current_time * 1000),
+                                'human_readable': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            })
+                            print(f"Logged historical temperature: {temperature}°C")
+                            last_log_time = current_time
+                        except Exception as e:
+                            print(f"Network error logging history: {e}")
+
+                # 2. Handle Hardware Vent Confirmations (ACK)
+                elif line.startswith("VENT:"):
+                    vent_status = line.split(":")[1] # Will be "OPEN" or "CLOSED"
+                    print(f"Hardware ACK Received: Vent is {vent_status}")
+                    try:
+                        db.reference('greenhouse/vent_state').set(vent_status)
+                    except Exception as e:
+                        print(f"Network error pushing vent state: {e}")
+                    
+            except Exception as e:
+                print(f"Serial read error: {e}")
+                
+        time.sleep(0.01) # Prevent 100% CPU usage
 
 except KeyboardInterrupt:
     print("Shutting down bridge...")
