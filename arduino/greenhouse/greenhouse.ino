@@ -56,6 +56,19 @@ float getFilteredTemperature() {
   return voltage * 100.0;
 }
 
+// Custom beep to avoid Timer conflict with IRremote library
+void customBeep(int frequency, int durationMs) {
+  long periodUs = 1000000L / frequency;
+  long halfPeriodUs = periodUs / 2;
+  long cycles = (durationMs * 1000L) / periodUs;
+  for (long i = 0; i < cycles; i++) {
+    digitalWrite(buzzerPin, HIGH);
+    delayMicroseconds(halfPeriodUs);
+    digitalWrite(buzzerPin, LOW);
+    delayMicroseconds(halfPeriodUs);
+  }
+}
+
 // Helper: Sync mode back to Python/Firebase
 void updateModeLocally(char newMode) {
   if (mode != newMode) {
@@ -64,9 +77,7 @@ void updateModeLocally(char newMode) {
     Serial.println(mode);
     
     // Quick beep for physical confirmation
-    tone(buzzerPin, 2000);
-    delay(100);
-    noTone(buzzerPin);
+    customBeep(2000, 100);
   }
 }
 
@@ -159,13 +170,10 @@ void loop() {
 
   if (temperatureC >= criticalTemp || !isConnected) {
     digitalWrite(redLedPin, HIGH);
-    tone(buzzerPin, 1000);
-    delay(200);
-    noTone(buzzerPin);
+    customBeep(1000, 200);
     delay(700); 
   } else {
     digitalWrite(redLedPin, LOW);
-    noTone(buzzerPin);
     delay(900); 
   }
 }
