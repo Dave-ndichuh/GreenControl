@@ -73,6 +73,10 @@ void updateModeLocally(char newMode) {
 void loop() {
   // 1. Process IR Remote Commands
   if (IrReceiver.decode()) {
+    // Print the received code so the user can see what their remote is sending
+    Serial.print("IR_CODE:");
+    Serial.println(IrReceiver.decodedIRData.command, HEX);
+
     // These command hex values match standard starter kit remotes (NEC protocol)
     // 0x45 = Button 1, 0x46 = Button 2, 0x47 = Button 3
     switch (IrReceiver.decodedIRData.command) {
