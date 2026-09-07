@@ -167,6 +167,9 @@ try:
                         if bridge_enabled:
                             try:
                                 db.reference('greenhouse/mode').set(new_mode)
+                            except Exception as e:
+                                print(f"Network error pushing mode: {e}")
+
                     # 4. Handle IR Debugging Hex Codes
                     elif line.startswith("IR_CODE:"):
                         hex_code = line.split(":")[1]
