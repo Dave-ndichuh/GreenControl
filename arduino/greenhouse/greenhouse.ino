@@ -77,12 +77,12 @@ void loop() {
     Serial.print("IR_CODE:");
     Serial.println(IrReceiver.decodedIRData.command, HEX);
 
-    // These command hex values match standard starter kit remotes (NEC protocol)
-    // 0x45 = Button 1, 0x46 = Button 2, 0x47 = Button 3
+    // Custom mapped IR codes for the user's remote
+    // 0x0C = AUTO, 0x18 = OPEN, 0x5E = CLOSE
     switch (IrReceiver.decodedIRData.command) {
-      case 0x45: updateModeLocally('A'); break;
-      case 0x46: updateModeLocally('O'); break;
-      case 0x47: updateModeLocally('C'); break;
+      case 0x0C: updateModeLocally('A'); break;
+      case 0x18: updateModeLocally('O'); break;
+      case 0x5E: updateModeLocally('C'); break;
     }
     IrReceiver.resume(); // Ready for next button press
   }
