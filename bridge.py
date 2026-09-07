@@ -31,16 +31,20 @@ except Exception as e:
 bridge_enabled = True
 
 def keyboard_listener():
-    global bridge_enabled
+    global bridge_enabled, arduino
     while True:
         try:
             cmd = input().strip().upper()
             if cmd == 'Y':
                 bridge_enabled = True
-                print("\n[SYSTEM] Bridge ENABLED - Syncing to Firebase!\n")
+                print("\n[SYSTEM] Bridge ENABLED - Reconnecting to COM Port and Firebase...\n")
             elif cmd == 'N':
                 bridge_enabled = False
-                print("\n[SYSTEM] Bridge PAUSED - Syncing stopped. Arduino running locally.\n")
+                try:
+                    if arduino: arduino.close()
+                except:
+                    pass
+                print("\n[SYSTEM] Bridge PAUSED - COM Port RELEASED! You can now Upload code safely.\n")
         except EOFError:
             break
 
@@ -50,49 +54,53 @@ input_thread.start()
 # --- FIREBASE LISTENERS (Cloud -> Arduino) ---
 
 def handle_mode_change(event):
-    if not bridge_enabled: return
+    if not bridge_enabled or not arduino or not arduino.is_open: return
     if event.data:
-        # The Arduino expects strings ending in a newline character
         command = str(event.data).upper() + '\n'
-        arduino.write(command.encode('utf-8'))
-        print(f"Sent Mode Override: {command.strip()}")
+        try:
+            arduino.write(command.encode('utf-8'))
+            print(f"Sent Mode Override: {command.strip()}")
+        except:
+            pass
 
 def handle_threshold_change(event):
-    if not bridge_enabled: return
+    if not bridge_enabled or not arduino or not arduino.is_open: return
     if event.data is not None:
-        # Send dynamic threshold as "T:28.5\n"
         command = f"T:{event.data}\n"
-        arduino.write(command.encode('utf-8'))
-        print(f"Sent New Threshold: {command.strip()}")
+        try:
+            arduino.write(command.encode('utf-8'))
+            print(f"Sent New Threshold: {command.strip()}")
+        except:
+            pass
 
-# Attach listeners
 db.reference('greenhouse/mode').listen(handle_mode_change)
 db.reference('greenhouse/threshold').listen(handle_threshold_change)
 
 # --- WATCHDOG PING THREAD ---
 def ping_arduino():
     while True:
-        try:
-            # Send the heartbeat every 10 seconds to Arduino
-            arduino.write(b"PING\n")
-            if bridge_enabled:
-                # Send heartbeat to Dashboard
+        if bridge_enabled:
+            try:
+                if arduino and arduino.is_open:
+                    arduino.write(b"PING\n")
                 db.reference('greenhouse/bridge_status').set('ONLINE')
                 db.reference('greenhouse/last_seen').set(int(time.time() * 1000))
-            else:
+            except:
+                pass
+        else:
+            try:
                 db.reference('greenhouse/bridge_status').set('OFFLINE')
-        except:
-            pass
+            except:
+                pass
         time.sleep(10)
 
-# Start ping thread in the background
 ping_thread = threading.Thread(target=ping_arduino, daemon=True)
 ping_thread.start()
 
 print("Bridge started. Listening to Arduino...")
 print("==================================================")
-print("Type 'N' + Enter to PAUSE Firebase Syncing")
-print("Type 'Y' + Enter to RESUME Firebase Syncing")
+print("Type 'N' + Enter to RELEASE COM Port for Uploads")
+print("Type 'Y' + Enter to RESUME Bridge")
 print("Press Ctrl+C to quit completely")
 print("==================================================")
 
@@ -103,7 +111,16 @@ ALERT_THRESHOLD = 32.0
 
 try:
     while True:
+        if not bridge_enabled:
+            time.sleep(1)
+            continue
+            
         try:
+            if arduino is None or not arduino.is_open:
+                arduino = serial.Serial(COM_PORT, 9600, timeout=1)
+                print(f"[SYSTEM] Connected to Arduino on {COM_PORT}")
+                time.sleep(2)
+                
             if arduino.in_waiting > 0:
                 try:
                     line = arduino.readline().decode('utf-8').strip()
@@ -180,17 +197,12 @@ try:
                     
         except serial.SerialException as se:
             print(f"\n[ERROR] Serial connection lost (Access Denied / Unplugged).")
-            print("Attempting to auto-reconnect in 5 seconds...")
+            print("Will attempt to reconnect...")
             try:
-                arduino.close()
+                if arduino: arduino.close()
             except:
                 pass
             time.sleep(5)
-            try:
-                arduino = serial.Serial(COM_PORT, 9600, timeout=1)
-                print(f"[SYSTEM] Successfully reconnected to {COM_PORT}!\n")
-            except Exception as e:
-                print(f"[ERROR] Reconnect failed. Will try again... ({e})")
                 
         time.sleep(0.01) # Prevent 100% CPU usage
 
