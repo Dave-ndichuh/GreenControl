@@ -27,9 +27,30 @@ except Exception as e:
     print(f"Failed to connect to Arduino on {COM_PORT}: {e}")
     sys.exit(1)
 
+# --- GLOBAL TOGGLE ---
+bridge_enabled = True
+
+def keyboard_listener():
+    global bridge_enabled
+    while True:
+        try:
+            cmd = input().strip().upper()
+            if cmd == 'Y':
+                bridge_enabled = True
+                print("\n[SYSTEM] Bridge ENABLED - Syncing to Firebase!\n")
+            elif cmd == 'N':
+                bridge_enabled = False
+                print("\n[SYSTEM] Bridge PAUSED - Syncing stopped. Arduino running locally.\n")
+        except EOFError:
+            break
+
+input_thread = threading.Thread(target=keyboard_listener, daemon=True)
+input_thread.start()
+
 # --- FIREBASE LISTENERS (Cloud -> Arduino) ---
 
 def handle_mode_change(event):
+    if not bridge_enabled: return
     if event.data:
         # The Arduino expects strings ending in a newline character
         command = str(event.data).upper() + '\n'
@@ -37,6 +58,7 @@ def handle_mode_change(event):
         print(f"Sent Mode Override: {command.strip()}")
 
 def handle_threshold_change(event):
+    if not bridge_enabled: return
     if event.data is not None:
         # Send dynamic threshold as "T:28.5\n"
         command = f"T:{event.data}\n"
@@ -53,9 +75,12 @@ def ping_arduino():
         try:
             # Send the heartbeat every 10 seconds to Arduino
             arduino.write(b"PING\n")
-            # Send heartbeat to Dashboard
-            db.reference('greenhouse/bridge_status').set('ONLINE')
-            db.reference('greenhouse/last_seen').set(int(time.time() * 1000))
+            if bridge_enabled:
+                # Send heartbeat to Dashboard
+                db.reference('greenhouse/bridge_status').set('ONLINE')
+                db.reference('greenhouse/last_seen').set(int(time.time() * 1000))
+            else:
+                db.reference('greenhouse/bridge_status').set('OFFLINE')
         except:
             pass
         time.sleep(10)
@@ -64,7 +89,12 @@ def ping_arduino():
 ping_thread = threading.Thread(target=ping_arduino, daemon=True)
 ping_thread.start()
 
-print("Bridge active. Listening to Arduino... (Press Ctrl+C to quit)")
+print("Bridge started. Listening to Arduino...")
+print("==================================================")
+print("Type 'N' + Enter to PAUSE Firebase Syncing")
+print("Type 'Y' + Enter to RESUME Firebase Syncing")
+print("Press Ctrl+C to quit completely")
+print("==================================================")
 
 # --- MAIN LOOP (Arduino -> Cloud) ---
 last_log_time = time.time()
@@ -80,14 +110,15 @@ try:
                 # 1. Handle Live Temperature & Time-Series Logging
                 if line.startswith("TEMP:"):
                     temperature = float(line.split(":")[1])
-                    print(f"Arduino -> Firebase: {temperature} °C")
+                    print(f"Arduino -> PC: {temperature} °C")
                     
-                    try:
-                        db.reference('greenhouse/temperature_live').set(temperature)
-                    except Exception as e:
-                        print(f"Network error pushing temperature: {e}")
+                    if bridge_enabled:
+                        try:
+                            db.reference('greenhouse/temperature_live').set(temperature)
+                        except Exception as e:
+                            print(f"Network error pushing temperature: {e}")
                     
-                    # Local OS Desktop Notification for critical temps
+                    # Local OS Desktop Notification for critical temps (still works even if paused)
                     current_time = time.time()
                     if temperature >= ALERT_THRESHOLD:
                         if current_time - last_alert_time >= 300: # 5 min throttle
@@ -104,7 +135,7 @@ try:
                                 print(f"Failed to show OS notification: {e}")
 
                     # Log historical data every 5 minutes (300 seconds)
-                    if current_time - last_log_time >= 300:
+                    if bridge_enabled and (current_time - last_log_time >= 300):
                         try:
                             db.reference('greenhouse/temperature_history').push({
                                 'temp': temperature,
@@ -120,10 +151,12 @@ try:
                 elif line.startswith("VENT:"):
                     vent_status = line.split(":")[1] # Will be "OPEN" or "CLOSED"
                     print(f"Hardware ACK Received: Vent is {vent_status}")
-                    try:
-                        db.reference('greenhouse/vent_state').set(vent_status)
-                    except Exception as e:
-                        print(f"Network error pushing vent state: {e}")
+                    
+                    if bridge_enabled:
+                        try:
+                            db.reference('greenhouse/vent_state').set(vent_status)
+                        except Exception as e:
+                            print(f"Network error pushing vent state: {e}")
                     
             except Exception as e:
                 print(f"Serial read error: {e}")
@@ -131,7 +164,7 @@ try:
         time.sleep(0.01) # Prevent 100% CPU usage
 
 except KeyboardInterrupt:
-    print("Shutting down bridge...")
+    print("\nShutting down bridge...")
     try:
         db.reference('greenhouse/bridge_status').set('OFFLINE')
     except:
