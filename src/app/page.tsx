@@ -157,11 +157,21 @@ export default function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex items-baseline gap-2 my-4">
+                <div className="flex items-baseline gap-2 my-2">
                   <span className={`text-6xl font-black tracking-tighter transition-all duration-500 ${isCritical ? (themeName === 'cyberpunk' ? 'text-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse' : 'text-red-600 animate-pulse') : isHighTemp ? (themeName === 'cyberpunk' ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]' : 'text-amber-500') : t.tempText}`}>
                     {activeTemp.toFixed(1)}
                   </span>
                   <span className={`text-2xl font-bold ${t.subtitle}`}>&deg;C</span>
+                </div>
+                
+                {/* Show both sensor readings explicitly */}
+                <div className="flex gap-4 mb-4 mt-1">
+                  <div className={`text-xs font-semibold px-2 py-1 rounded-md ${themeName === 'cyberpunk' ? 'bg-slate-900 border border-slate-700 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                    DHT11: {tempDHT.toFixed(1)}&deg;C
+                  </div>
+                  <div className={`text-xs font-semibold px-2 py-1 rounded-md ${themeName === 'cyberpunk' ? 'bg-slate-900 border border-slate-700 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                    LM35: {tempLM35.toFixed(1)}&deg;C
+                  </div>
                 </div>
                 
                 <Progress 
