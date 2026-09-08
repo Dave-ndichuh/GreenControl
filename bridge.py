@@ -55,6 +55,18 @@ input_thread.start()
 
 # --- FIREBASE LISTENERS (Cloud -> Arduino) ---
 
+def async_firebase_update(path, data, is_update=False):
+    """Pushes data to Firebase in a background thread to prevent Serial buffering lag"""
+    def task():
+        try:
+            if is_update:
+                db.reference(path).update(data)
+            else:
+                db.reference(path).set(data)
+        except:
+            pass
+    threading.Thread(target=task, daemon=True).start()
+
 def handle_mode_change(event):
     if not bridge_enabled or not arduino or not arduino.is_open: return
     if event.data:
@@ -134,17 +146,9 @@ try:
                     # 1. Handle Dual Sensors & Telemetry Logging
                     if line.startswith("TEMP_LM35:"):
                         lm35_val = float(line.split(":")[1])
-                        if bridge_enabled:
-                            try:
-                                db.reference('greenhouse/sensors/temp_lm35').set(lm35_val)
-                            except: pass
 
                     elif line.startswith("TEMP_DHT:"):
                         dht_val = float(line.split(":")[1])
-                        if bridge_enabled:
-                            try:
-                                db.reference('greenhouse/sensors/temp_dht').set(dht_val)
-                            except: pass
                             
                         # OS Desktop Notification (active temp priority)
                         active_temp = lm35_val if lm35_val > 0 else dht_val
@@ -168,25 +172,26 @@ try:
                         print(f"Arduino -> PC: LM35({lm35_val}°C) DHT({dht_val}°C, {hum_val}%)")
                         
                         if bridge_enabled:
-                            try:
-                                db.reference('greenhouse/sensors/humidity').set(hum_val)
-                            except: pass
+                            # Batch update all sensors asynchronously
+                            async_firebase_update('greenhouse/sensors', {
+                                'temp_lm35': lm35_val,
+                                'temp_dht': dht_val,
+                                'humidity': hum_val
+                            }, is_update=True)
                             
                         # Periodic Time-Series Logging to telemetry_history
                         current_time = time.time()
                         if bridge_enabled and (current_time - last_log_time >= 300):
-                            try:
-                                db.reference('greenhouse/telemetry_history').push({
-                                    'temp_lm35': lm35_val,
-                                    'temp_dht': dht_val,
-                                    'humidity': hum_val,
-                                    'timestamp': int(current_time * 1000),
-                                    'human_readable': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                })
-                                print(f"Logged telemetry: LM35={lm35_val}, DHT={dht_val}, Hum={hum_val}%")
-                                last_log_time = current_time
-                            except Exception as e:
-                                print(f"Network error logging telemetry: {e}")
+                            new_node = db.reference('greenhouse/telemetry_history').push()
+                            async_firebase_update(f'greenhouse/telemetry_history/{new_node.key}', {
+                                'temp_lm35': lm35_val,
+                                'temp_dht': dht_val,
+                                'humidity': hum_val,
+                                'timestamp': int(current_time * 1000),
+                                'human_readable': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            })
+                            print(f"Logged telemetry: LM35={lm35_val}, DHT={dht_val}, Hum={hum_val}%")
+                            last_log_time = current_time
 
                     # 2. Handle Hardware Vent Confirmations (ACK)
                     elif line.startswith("VENT:"):
@@ -194,10 +199,7 @@ try:
                         print(f"Hardware ACK Received: Vent is {vent_status}")
                         
                         if bridge_enabled:
-                            try:
-                                db.reference('greenhouse/vent_state').set(vent_status)
-                            except Exception as e:
-                                print(f"Network error pushing vent state: {e}")
+                            async_firebase_update('greenhouse/vent_state', vent_status)
 
                     # 3. Handle Local IR Remote Overrides
                     elif line.startswith("SYNC_MODE:"):
@@ -205,10 +207,7 @@ try:
                         print(f"Hardware Override: Synced mode {new_mode} to Cloud")
                         
                         if bridge_enabled:
-                            try:
-                                db.reference('greenhouse/mode').set(new_mode)
-                            except Exception as e:
-                                print(f"Network error pushing mode: {e}")
+                            async_firebase_update('greenhouse/mode', new_mode)
 
                     # 4. Handle IR Debugging Hex Codes
                     elif line.startswith("IR_CODE:"):
@@ -221,10 +220,7 @@ try:
                         print(f"Power Draw: {power_mw} mW")
                         
                         if bridge_enabled:
-                            try:
-                                db.reference('greenhouse/power_live').set(power_mw)
-                            except Exception as e:
-                                print(f"Network error pushing power: {e}")
+                            async_firebase_update('greenhouse/power_live', power_mw)
                         
                 except Exception as e:
                     print(f"Serial read parsing error: {e}")
