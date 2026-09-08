@@ -147,7 +147,7 @@ try:
                             except: pass
                             
                         # OS Desktop Notification (active temp priority)
-                        active_temp = dht_val if dht_val > 0 else lm35_val
+                        active_temp = lm35_val if lm35_val > 0 else dht_val
                         current_time = time.time()
                         if active_temp >= ALERT_THRESHOLD:
                             if current_time - last_alert_time >= 300:

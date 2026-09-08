@@ -74,8 +74,8 @@ export default function DashboardPage() {
   const [themeName, setThemeName] = useState<Theme>('modern');
   const t = themeMap[themeName];
 
-  // Derive active temp prioritizing DHT over LM35 if valid
-  const activeTemp = tempDHT > 0 ? tempDHT : tempLM35;
+  // Derive active temp prioritizing LM35 over DHT if valid
+  const activeTemp = tempLM35 > 0 ? tempLM35 : tempDHT;
   const isHeating = activeTemp >= threshold;
 
   // Local state for the slider to prevent lag while dragging

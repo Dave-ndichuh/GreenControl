@@ -142,7 +142,7 @@ void loop() {
   Serial.print("HUM:");       Serial.println(humDHT, 1);
 
   // 6. Automated Control Logic
-  float activeTemp = (tempDHT > 0.0) ? tempDHT : tempLM35;
+  float activeTemp = (tempLM35 > 0.0) ? tempLM35 : tempDHT;
 
   if (mode == 'A') {
     isVentOpen = (activeTemp > thresholdTemp);
