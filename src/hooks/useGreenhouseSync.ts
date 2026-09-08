@@ -143,5 +143,5 @@ export function useGreenhouseSync() {
     }
   };
 
-  return { temperature, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline };
+  return { temperature, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline, power };
 }
