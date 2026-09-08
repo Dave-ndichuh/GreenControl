@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Leaf, Thermometer, Wind, Settings2, AlertCircle, Activity, CheckCircle2, Zap } from 'lucide-react';
+import { Leaf, Thermometer, Wind, Settings2, AlertCircle, Activity, CheckCircle2, Zap, Droplets } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 type Theme = 'modern' | 'cyberpunk' | 'eco';
@@ -69,17 +69,21 @@ const themeMap = {
 };
 
 export default function DashboardPage() {
-  const { temperature, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline, power } = useGreenhouseSync();
+  const { tempLM35, tempDHT, humidity, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline, power } = useGreenhouseSync();
 
   const [themeName, setThemeName] = useState<Theme>('modern');
   const t = themeMap[themeName];
+
+  // Derive active temp prioritizing DHT over LM35 if valid
+  const activeTemp = tempDHT > 0 ? tempDHT : tempLM35;
+  const isHeating = activeTemp >= threshold;
 
   // Local state for the slider to prevent lag while dragging
   const [localThreshold, setLocalThreshold] = useState(threshold);
   useEffect(() => setLocalThreshold(threshold), [threshold]);
 
-  const isHighTemp = temperature > threshold;
-  const isCritical = temperature >= 32.0;
+  const isHighTemp = activeTemp > threshold;
+  const isCritical = activeTemp >= 32.0;
 
   const formatTime = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -155,13 +159,13 @@ export default function DashboardPage() {
               <CardContent>
                 <div className="flex items-baseline gap-2 my-4">
                   <span className={`text-6xl font-black tracking-tighter transition-all duration-500 ${isCritical ? (themeName === 'cyberpunk' ? 'text-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse' : 'text-red-600 animate-pulse') : isHighTemp ? (themeName === 'cyberpunk' ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]' : 'text-amber-500') : t.tempText}`}>
-                    {temperature.toFixed(1)}
+                    {activeTemp.toFixed(1)}
                   </span>
                   <span className={`text-2xl font-bold ${t.subtitle}`}>&deg;C</span>
                 </div>
                 
                 <Progress 
-                  value={Math.min((temperature / 50) * 100, 100)} 
+                  value={Math.min((activeTemp / 50) * 100, 100)} 
                   className={`h-2 mb-2 bg-slate-200/20 ${isCritical ? '[&>div]:bg-red-600' : isHighTemp ? '[&>div]:bg-amber-500' : (themeName === 'cyberpunk' ? '[&>div]:bg-emerald-400 [&>div]:shadow-[0_0_10px_#34d399]' : '[&>div]:bg-emerald-500')}`} 
                 />
                 
@@ -180,6 +184,31 @@ export default function DashboardPage() {
                       <Activity className="h-3.5 w-3.5" /> Optimal
                     </span>
                   )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Humidity Card */}
+            <Card className={t.card}>
+              <div className="h-2 w-full transition-colors duration-500 bg-blue-500" />
+              <CardHeader className="pb-2">
+                <CardTitle className={`text-lg flex items-center gap-2 ${t.title}`}>
+                  <Droplets className="h-5 w-5 text-blue-500" />
+                  Humidity
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-baseline gap-2 my-2">
+                  <span className={`text-5xl font-black tracking-tighter ${themeName === 'cyberpunk' ? 'text-blue-400 drop-shadow-[0_0_10px_rgba(59,130,246,0.6)]' : 'text-blue-600'}`}>
+                    {humidity.toFixed(1)}
+                  </span>
+                  <span className={`text-xl font-bold ${t.subtitle}`}>%</span>
+                </div>
+                <div className={`flex items-center justify-between text-sm ${t.subtitle}`}>
+                  <span className="font-medium">Sensor:</span>
+                  <span className="font-semibold text-blue-500 flex items-center gap-1">
+                    DHT11 Live Feed
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -312,12 +341,22 @@ export default function DashboardPage() {
                       {/* Dynamic Reference Line from slider */}
                       <ReferenceLine y={threshold} stroke="#f59e0b" strokeDasharray="3 3" label={{ position: 'top', value: `Threshold (${threshold}°C)`, fill: '#f59e0b', fontSize: 10 }} />
                       <Line 
+                        name="DHT11 Temp"
                         type="monotone" 
-                        dataKey="temp" 
+                        dataKey="temp_dht" 
                         stroke={t.chartLine} 
                         strokeWidth={themeName === 'cyberpunk' ? 3 : 2}
                         dot={{ r: 3, fill: t.chartLine, strokeWidth: 0 }} 
                         activeDot={{ r: 6, stroke: themeName === 'cyberpunk' ? '#10b981' : '#fff', strokeWidth: 2 }} 
+                      />
+                      <Line 
+                        name="LM35 Temp"
+                        type="monotone" 
+                        dataKey="temp_lm35" 
+                        stroke="#8b5cf6" 
+                        strokeDasharray="5 5"
+                        strokeWidth={2}
+                        dot={{ r: 2, fill: "#8b5cf6", strokeWidth: 0 }} 
                       />
                     </LineChart>
                   </ResponsiveContainer>

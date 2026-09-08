@@ -1,18 +1,23 @@
 #include <LiquidCrystal.h>
 #include <Servo.h>
-#include <IRremote.h> // Requires IRremote library
+#include <IRremote.h>
+#include <DHT.h>
 
 // --- Pin Definitions ---
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 Servo ventServo;
 
 const int lm35Pin = A0;
-const int irReceiverPin = A1; // IR sensor input
+const int irReceiverPin = A1;
+const int dhtPin = A2;
 const int servoPin = 9;
 const int greenLedPin = 6;
 const int blueLedPin = 7;
 const int redLedPin = 8;
 const int buzzerPin = 10;
+
+#define DHTTYPE DHT11
+DHT dht(dhtPin, DHTTYPE);
 
 // --- State Variables ---
 float thresholdTemp = 28.0; 
@@ -21,8 +26,14 @@ char mode = 'A';
 bool isVentOpen = false;
 bool lastVentState = false;
 
-// --- Watchdog Variables ---
+// --- Sensor Values ---
+float tempLM35 = 0.0;
+float tempDHT = 0.0;
+float humDHT = 0.0;
+
+// --- Timers ---
 unsigned long lastPingTime = 0;
+unsigned long lastDHTReadTime = 0;
 const unsigned long watchdogTimeout = 30000;
 
 void setup() {
@@ -35,8 +46,8 @@ void setup() {
   pinMode(redLedPin, OUTPUT);
   pinMode(buzzerPin, OUTPUT);
   
-  // Initialize IR Receiver
   IrReceiver.begin(irReceiverPin, ENABLE_LED_FEEDBACK);
+  dht.begin();
   
   ventServo.write(0);
   lcd.print("BomaLink Node OS");
@@ -45,11 +56,12 @@ void setup() {
   lastPingTime = millis();
 }
 
-float getFilteredTemperature() {
+// 10-sample moving average for LM35
+float readLM35() {
   long sum = 0;
   for (int i = 0; i < 10; i++) {
     sum += analogRead(lm35Pin);
-    delay(10);
+    delay(5);
   }
   float avgRaw = sum / 10.0;
   float voltage = (avgRaw / 1024.0) * 5.0;
@@ -69,14 +81,11 @@ void customBeep(int frequency, int durationMs) {
   }
 }
 
-// Helper: Sync mode back to Python/Firebase
 void updateModeLocally(char newMode) {
   if (mode != newMode) {
     mode = newMode;
     Serial.print("SYNC_MODE:");
     Serial.println(mode);
-    
-    // Quick beep for physical confirmation
     customBeep(2000, 100);
   }
 }
@@ -84,36 +93,28 @@ void updateModeLocally(char newMode) {
 void loop() {
   // 1. Process IR Remote Commands
   if (IrReceiver.decode()) {
-    // Print the received code so the user can see what their remote is sending
     Serial.print("IR_CODE:");
     Serial.println(IrReceiver.decodedIRData.command, HEX);
-
+    
     // Custom mapped IR codes for the user's remote
-    // 0x0C = AUTO, 0x18 = OPEN, 0x5E = CLOSE
     switch (IrReceiver.decodedIRData.command) {
       case 0x0C: updateModeLocally('A'); break;
       case 0x18: updateModeLocally('O'); break;
       case 0x5E: updateModeLocally('C'); break;
     }
-    IrReceiver.resume(); // Ready for next button press
+    IrReceiver.resume(); 
   }
 
-  // 2. Process Incoming Serial Commands from Python
+  // 2. Process Incoming Serial Commands
   if (Serial.available() > 0) {
     String incoming = Serial.readStringUntil('\n');
     incoming.trim();
     
-    if (incoming == "PING") {
-      lastPingTime = millis();
-    } else if (incoming == "O") {
-      mode = 'O';
-    } else if (incoming == "C") {
-      mode = 'C';
-    } else if (incoming == "A") {
-      mode = 'A';
-    } else if (incoming.startsWith("T:")) {
-      thresholdTemp = incoming.substring(2).toFloat();
-    }
+    if (incoming == "PING") lastPingTime = millis();
+    else if (incoming == "O") mode = 'O';
+    else if (incoming == "C") mode = 'C';
+    else if (incoming == "A") mode = 'A';
+    else if (incoming.startsWith("T:")) thresholdTemp = incoming.substring(2).toFloat();
   }
 
   // 3. Watchdog Failsafe
@@ -122,14 +123,29 @@ void loop() {
     updateModeLocally('A'); 
   }
 
-  // 4. Read Sensor & Broadcast Live Data
-  float temperatureC = getFilteredTemperature();
-  Serial.print("TEMP:");
-  Serial.println(temperatureC);
+  // 4. Read Sensors
+  tempLM35 = readLM35();
 
-  // 5. Evaluate Logic & Control Servo
+  if (millis() - lastDHTReadTime >= 2000) {
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+    if (!isnan(h) && !isnan(t)) {
+      tempDHT = t;
+      humDHT = h;
+    }
+    lastDHTReadTime = millis();
+  }
+
+  // 5. Broadcast to Python Serial Bridge
+  Serial.print("TEMP_LM35:"); Serial.println(tempLM35, 1);
+  Serial.print("TEMP_DHT:");  Serial.println(tempDHT, 1);
+  Serial.print("HUM:");       Serial.println(humDHT, 1);
+
+  // 6. Automated Control Logic
+  float activeTemp = (tempDHT > 0.0) ? tempDHT : tempLM35;
+
   if (mode == 'A') {
-    isVentOpen = (temperatureC > thresholdTemp);
+    isVentOpen = (activeTemp > thresholdTemp);
   } else {
     isVentOpen = (mode == 'O');
   }
@@ -151,31 +167,31 @@ void loop() {
   }
 
   if (isVentMoving && (millis() - ventMoveStartTime > 1000)) {
-    isVentMoving = false; // Servo takes ~1 sec to move
+    isVentMoving = false;
   }
 
-  // 6. Update LCD
+  // 8. LCD Display
   lcd.setCursor(0, 0);
-  lcd.print("Temp: ");
-  lcd.print(temperatureC, 1);
-  lcd.print(" C   ");
+  lcd.print("L:");
+  lcd.print(tempLM35, 1);
+  lcd.print("C D:");
+  lcd.print(tempDHT, 1);
+  lcd.print("C ");
 
   lcd.setCursor(0, 1);
-  if (!isConnected) {
-    lcd.print("SYS: OFFLINE ");
-  } else if (mode == 'A') {
-    lcd.print("Mode: AUTO   ");
-  } else if (mode == 'O') {
-    lcd.print("Mode: O-RIDE ");
-  } else if (mode == 'C') {
-    lcd.print("Mode: C-RIDE ");
-  }
+  lcd.print("H:");
+  lcd.print((int)humDHT);
+  lcd.print("% ");
+  if (!isConnected) lcd.print("M:OFFLN  ");
+  else if (mode == 'A') lcd.print("M:AUTO   ");
+  else if (mode == 'O') lcd.print("M:O-RIDE ");
+  else if (mode == 'C') lcd.print("M:C-RIDE ");
 
-  // 7. Alarms
+  // 9. Alarms & LEDs
   digitalWrite(greenLedPin, isConnected ? HIGH : LOW);
   digitalWrite(blueLedPin, isVentOpen ? HIGH : LOW);
 
-  bool isAlarming = (temperatureC >= criticalTemp || !isConnected);
+  bool isAlarming = (activeTemp >= criticalTemp || !isConnected);
   if (isAlarming) {
     digitalWrite(redLedPin, HIGH);
     customBeep(1000, 200);
@@ -185,19 +201,16 @@ void loop() {
     delay(900); 
   }
 
-  // 8. Estimate Power Draw (Digital Twin)
-  int current_mA = 45 + 20; // Base Arduino (45mA) + LCD (20mA)
-  if (isConnected) current_mA += 15; // Green LED
-  if (isVentOpen) current_mA += 15; // Blue LED
-  if (isAlarming) current_mA += 45; // Red LED (15mA) + Buzzer (30mA)
+  // 10. Estimate Power Draw (Digital Twin)
+  int current_mA = 45 + 20 + 2; // Base + LCD + DHT/LM35
+  if (isConnected) current_mA += 15;
+  if (isVentOpen) current_mA += 15;
+  if (isAlarming) current_mA += 45;
   
-  if (isVentMoving) {
-    current_mA += 200; // Servo actively moving
-  } else {
-    current_mA += 10;  // Servo idle/holding
-  }
+  if (isVentMoving) current_mA += 200;
+  else current_mA += 10;
 
-  int powerMW = current_mA * 5; // Power (mW) = I * V
+  int powerMW = current_mA * 5;
   Serial.print("PWR:");
   Serial.println(powerMW);
 }

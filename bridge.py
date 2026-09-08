@@ -111,6 +111,10 @@ last_log_time = time.time()
 last_alert_time = 0
 ALERT_THRESHOLD = 32.0
 
+lm35_val = 0.0
+dht_val = 0.0
+hum_val = 0.0
+
 try:
     while True:
         if not bridge_enabled:
@@ -127,45 +131,62 @@ try:
                 try:
                     line = arduino.readline().decode('utf-8').strip()
                     
-                    # 1. Handle Live Temperature & Time-Series Logging
-                    if line.startswith("TEMP:"):
-                        temperature = float(line.split(":")[1])
-                        print(f"Arduino -> PC: {temperature} °C")
-                        
+                    # 1. Handle Dual Sensors & Telemetry Logging
+                    if line.startswith("TEMP_LM35:"):
+                        lm35_val = float(line.split(":")[1])
                         if bridge_enabled:
                             try:
-                                db.reference('greenhouse/temperature_live').set(temperature)
-                            except Exception as e:
-                                print(f"Network error pushing temperature: {e}")
-                        
-                        # Local OS Desktop Notification for critical temps (still works even if paused)
+                                db.reference('greenhouse/sensors/temp_lm35').set(lm35_val)
+                            except: pass
+
+                    elif line.startswith("TEMP_DHT:"):
+                        dht_val = float(line.split(":")[1])
+                        if bridge_enabled:
+                            try:
+                                db.reference('greenhouse/sensors/temp_dht').set(dht_val)
+                            except: pass
+                            
+                        # OS Desktop Notification (active temp priority)
+                        active_temp = dht_val if dht_val > 0 else lm35_val
                         current_time = time.time()
-                        if temperature >= ALERT_THRESHOLD:
-                            if current_time - last_alert_time >= 300: # 5 min throttle
-                                print(f"CRITICAL: Temperature reached {temperature}°C! Triggering OS Notification.")
+                        if active_temp >= ALERT_THRESHOLD:
+                            if current_time - last_alert_time >= 300:
+                                print(f"CRITICAL: Temp reached {active_temp}°C! Triggering OS Notification.")
                                 try:
                                     notification.notify(
                                         title="Greenhouse CRITICAL Alert!",
-                                        message=f"Temperature has reached {temperature}°C (Threshold: {ALERT_THRESHOLD}°C)",
+                                        message=f"Temp is {active_temp}°C (Threshold: {ALERT_THRESHOLD}°C)",
                                         app_name="GreenControl",
                                         timeout=10
                                     )
                                     last_alert_time = current_time
-                                except Exception as e:
-                                    print(f"Failed to show OS notification: {e}")
+                                except: pass
 
-                        # Log historical data every 5 minutes (300 seconds)
+                    elif line.startswith("HUM:"):
+                        hum_val = float(line.split(":")[1])
+                        # Print aggregated live feed to console
+                        print(f"Arduino -> PC: LM35({lm35_val}°C) DHT({dht_val}°C, {hum_val}%)")
+                        
+                        if bridge_enabled:
+                            try:
+                                db.reference('greenhouse/sensors/humidity').set(hum_val)
+                            except: pass
+                            
+                        # Periodic Time-Series Logging to telemetry_history
+                        current_time = time.time()
                         if bridge_enabled and (current_time - last_log_time >= 300):
                             try:
-                                db.reference('greenhouse/temperature_history').push({
-                                    'temp': temperature,
+                                db.reference('greenhouse/telemetry_history').push({
+                                    'temp_lm35': lm35_val,
+                                    'temp_dht': dht_val,
+                                    'humidity': hum_val,
                                     'timestamp': int(current_time * 1000),
                                     'human_readable': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                 })
-                                print(f"Logged historical temperature: {temperature}°C")
+                                print(f"Logged telemetry: LM35={lm35_val}, DHT={dht_val}, Hum={hum_val}%")
                                 last_log_time = current_time
                             except Exception as e:
-                                print(f"Network error logging history: {e}")
+                                print(f"Network error logging telemetry: {e}")
 
                     # 2. Handle Hardware Vent Confirmations (ACK)
                     elif line.startswith("VENT:"):

@@ -6,14 +6,18 @@ export type Mode = 'A' | 'O' | 'C';
 export type VentState = 'OPEN' | 'CLOSED' | 'UNKNOWN';
 
 export interface HistoryData {
-  id: string;
-  temp: number;
+  temp_lm35: number;
+  temp_dht: number;
+  humidity: number;
   timestamp: number;
   human_readable: string;
 }
 
 export function useGreenhouseSync() {
-  const [temperature, setTemperature] = useState<number>(0);
+  const [tempLM35, setTempLM35] = useState<number>(0);
+  const [tempDHT, setTempDHT] = useState<number>(0);
+  const [humidity, setHumidity] = useState<number>(0);
+  
   const [mode, setMode] = useState<Mode>('A');
   const [threshold, setThreshold] = useState<number>(28.0);
   const [ventState, setVentState] = useState<VentState>('UNKNOWN');
@@ -21,14 +25,24 @@ export function useGreenhouseSync() {
   const [isBridgeOnline, setIsBridgeOnline] = useState<boolean>(false);
   const [power, setPower] = useState<number>(0);
 
-  // Listen to live temperature
+  // Listen to live sensors
   useEffect(() => {
-    const tempRef = ref(database, 'greenhouse/temperature_live');
-    const unsubscribeTemp = onValue(tempRef, (snapshot) => {
-      const val = snapshot.val();
-      if (typeof val === 'number') setTemperature(val);
+    const lm35Ref = ref(database, 'greenhouse/sensors/temp_lm35');
+    const unsubLM35 = onValue(lm35Ref, (snapshot) => {
+      if (typeof snapshot.val() === 'number') setTempLM35(snapshot.val());
     });
-    return () => unsubscribeTemp();
+    
+    const dhtRef = ref(database, 'greenhouse/sensors/temp_dht');
+    const unsubDHT = onValue(dhtRef, (snapshot) => {
+      if (typeof snapshot.val() === 'number') setTempDHT(snapshot.val());
+    });
+
+    const humRef = ref(database, 'greenhouse/sensors/humidity');
+    const unsubHum = onValue(humRef, (snapshot) => {
+      if (typeof snapshot.val() === 'number') setHumidity(snapshot.val());
+    });
+
+    return () => { unsubLM35(); unsubDHT(); unsubHum(); };
   }, []);
 
   // Listen to live power estimation
@@ -105,21 +119,14 @@ export function useGreenhouseSync() {
     };
   }, []);
 
-  // Listen to historical data
+  // Listen to telemetry history
   useEffect(() => {
-    const historyRef = ref(database, 'greenhouse/temperature_history');
+    const historyRef = ref(database, 'greenhouse/telemetry_history');
     const unsubscribeHistory = onValue(historyRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const historyArray = Object.keys(data).map(key => ({
-          id: key,
-          ...data[key]
-        })).sort((a, b) => a.timestamp - b.timestamp);
-        
-        // Keep only the last 100 points for performance
-        setHistory(historyArray.slice(-100));
-      } else {
-        setHistory([]);
+        const parsed: HistoryData[] = Object.values(data);
+        setHistory(parsed.slice(-20)); // Keep last 20 points
       }
     });
     return () => unsubscribeHistory();
@@ -143,5 +150,5 @@ export function useGreenhouseSync() {
     }
   };
 
-  return { temperature, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline, power };
+  return { tempLM35, tempDHT, humidity, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline, power };
 }
