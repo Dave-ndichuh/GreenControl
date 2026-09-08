@@ -193,6 +193,17 @@ try:
                     elif line.startswith("IR_CODE:"):
                         hex_code = line.split(":")[1]
                         print(f"------------\n[IR DETECTED] Button pressed on remote! Hex Code: 0x{hex_code}\n------------")
+
+                    # 5. Handle Live Power Estimation (Digital Twin)
+                    elif line.startswith("PWR:"):
+                        power_mw = int(line.split(":")[1])
+                        print(f"Power Draw: {power_mw} mW")
+                        
+                        if bridge_enabled:
+                            try:
+                                db.reference('greenhouse/power_live').set(power_mw)
+                            except Exception as e:
+                                print(f"Network error pushing power: {e}")
                         
                 except Exception as e:
                     print(f"Serial read parsing error: {e}")

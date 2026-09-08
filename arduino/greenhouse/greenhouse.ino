@@ -134,20 +134,27 @@ void loop() {
     isVentOpen = (mode == 'O');
   }
 
-  if (isVentOpen) {
-    ventServo.write(90);
-  } else {
-    ventServo.write(0);
-  }
+  static bool isVentMoving = false;
+  static unsigned long ventMoveStartTime = 0;
 
-  // 6. Hardware ACK
   if (isVentOpen != lastVentState) {
-    if (isVentOpen) Serial.println("VENT:OPEN");
-    else Serial.println("VENT:CLOSED");
+    isVentMoving = true;
+    ventMoveStartTime = millis();
+    if (isVentOpen) {
+      ventServo.write(90);
+      Serial.println("VENT:OPEN");
+    } else {
+      ventServo.write(0);
+      Serial.println("VENT:CLOSED");
+    }
     lastVentState = isVentOpen;
   }
 
-  // 7. Update LCD
+  if (isVentMoving && (millis() - ventMoveStartTime > 1000)) {
+    isVentMoving = false; // Servo takes ~1 sec to move
+  }
+
+  // 6. Update LCD
   lcd.setCursor(0, 0);
   lcd.print("Temp: ");
   lcd.print(temperatureC, 1);
@@ -164,11 +171,12 @@ void loop() {
     lcd.print("Mode: C-RIDE ");
   }
 
-  // 8. Alarms
+  // 7. Alarms
   digitalWrite(greenLedPin, isConnected ? HIGH : LOW);
   digitalWrite(blueLedPin, isVentOpen ? HIGH : LOW);
 
-  if (temperatureC >= criticalTemp || !isConnected) {
+  bool isAlarming = (temperatureC >= criticalTemp || !isConnected);
+  if (isAlarming) {
     digitalWrite(redLedPin, HIGH);
     customBeep(1000, 200);
     delay(700); 
@@ -176,4 +184,20 @@ void loop() {
     digitalWrite(redLedPin, LOW);
     delay(900); 
   }
+
+  // 8. Estimate Power Draw (Digital Twin)
+  int current_mA = 45 + 20; // Base Arduino (45mA) + LCD (20mA)
+  if (isConnected) current_mA += 15; // Green LED
+  if (isVentOpen) current_mA += 15; // Blue LED
+  if (isAlarming) current_mA += 45; // Red LED (15mA) + Buzzer (30mA)
+  
+  if (isVentMoving) {
+    current_mA += 200; // Servo actively moving
+  } else {
+    current_mA += 10;  // Servo idle/holding
+  }
+
+  int powerMW = current_mA * 5; // Power (mW) = I * V
+  Serial.print("PWR:");
+  Serial.println(powerMW);
 }

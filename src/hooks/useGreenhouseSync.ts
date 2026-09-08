@@ -19,6 +19,7 @@ export function useGreenhouseSync() {
   const [ventState, setVentState] = useState<VentState>('UNKNOWN');
   const [history, setHistory] = useState<HistoryData[]>([]);
   const [isBridgeOnline, setIsBridgeOnline] = useState<boolean>(false);
+  const [power, setPower] = useState<number>(0);
 
   // Listen to live temperature
   useEffect(() => {
@@ -28,6 +29,16 @@ export function useGreenhouseSync() {
       if (typeof val === 'number') setTemperature(val);
     });
     return () => unsubscribeTemp();
+  }, []);
+
+  // Listen to live power estimation
+  useEffect(() => {
+    const powerRef = ref(database, 'greenhouse/power_live');
+    const unsubscribePower = onValue(powerRef, (snapshot) => {
+      const val = snapshot.val();
+      if (typeof val === 'number') setPower(val);
+    });
+    return () => unsubscribePower();
   }, []);
 
   // Listen to mode

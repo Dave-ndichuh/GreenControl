@@ -69,7 +69,7 @@ const themeMap = {
 };
 
 export default function DashboardPage() {
-  const { temperature, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline } = useGreenhouseSync();
+  const { temperature, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline, power } = useGreenhouseSync();
 
   const [themeName, setThemeName] = useState<Theme>('modern');
   const t = themeMap[themeName];
@@ -96,7 +96,13 @@ export default function DashboardPage() {
             <span className="text-xl font-bold tracking-tight">GreenControl</span>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 sm:gap-6">
+            {/* Power Metric */}
+            <div className={`hidden sm:flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full ${themeName === 'cyberpunk' ? 'text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 shadow-[0_0_10px_rgba(250,204,21,0.2)]' : 'text-amber-700 bg-amber-50 border border-amber-200'}`}>
+              <Zap className={`h-4 w-4 ${themeName === 'cyberpunk' ? 'animate-pulse' : ''}`} />
+              {power} mW
+            </div>
+
             {/* Theme Switcher */}
             <div className={`hidden sm:flex p-1 rounded-full text-xs font-semibold ${themeName === 'cyberpunk' ? 'bg-emerald-950/50 border border-emerald-900/50' : 'bg-black/5'}`}>
               <button onClick={() => setThemeName('modern')} className={`px-3 py-1 rounded-full transition-all ${themeName === 'modern' ? 'bg-white shadow-sm text-slate-900' : 'opacity-60 hover:opacity-100'}`}>Modern</button>
