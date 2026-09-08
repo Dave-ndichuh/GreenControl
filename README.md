@@ -1,9 +1,7 @@
 # GreenControl: IoT Farmhouse Dashboard
-
 GreenControl is a full-stack, real-time IoT climate control system built for greenhouse environments. It seamlessly bridges a physical hardware node (Arduino UNO) with a modern, responsive web dashboard (Next.js) using a Python serial bridge and Firebase Realtime Database.
 
 ## System Architecture
-
 The project consists of three tightly integrated layers:
 
 1. **Hardware Node (Arduino C++)**: Reads physical sensors, controls the vent actuator, drives local UI (LCD, LEDs, Buzzer), and handles infrared remote overrides.
@@ -13,21 +11,22 @@ The project consists of three tightly integrated layers:
 ---
 
 ## 1. Hardware Node (BomaLink Node OS)
-
 The Arduino UNO acts as the physical brain, running a robust loop that operates independently but syncs instantly when connected to the bridge.
 
-### Components & Wiring
-* **Arduino UNO R3**
-* **LM35 Temperature Sensor** (Pin A0): Primary analog temperature control (smoothed via 10-point moving average).
-* **IR Receiver** (Pin A1): Allows local overrides using an infrared TV remote.
-* **DHT11 Sensor** (Pin A2): Provides secondary digital temperature and primary humidity readings.
+### Components & Wiring (Pinouts)
+
+* **Arduino UNO R3**: The core microcontroller.
+* **Power Connection Warning**: The 9g Servo, LCD backlight, and multiple sensors draw significant current. To prevent Arduino brownouts/resets during servo movement, power the Servo from an external 5V source (sharing a common Ground with the Arduino), or place a 470µF bypass capacitor across the 5V and GND rails.
+* **16x2 LCD Display** (Pins 12, 11, 5, 4, 3, 2): Shows live dual-sensor readings (e.g., `L:26.4C D:24.1C`) and the current system mode.
+* **LM35 Temperature Sensor** (Pin A0): Secondary analog temperature sensor (smoothed via 10-point moving average).
+* **IR Receiver** (Pin A1): Allows local overrides using an infrared TV remote. (Ensure VCC/GND are correct; reversing them will instantly destroy the sensor).
+* **DHT11 Sensor** (Pin A2): Provides the primary digital temperature and humidity readings, overriding the analog LM35 for automated logic if both are active.
 * **SG90 Micro Servo** (Pin 9): Actuates the greenhouse ventilation flaps.
-* **16x2 LCD Display**: Shows live dual-sensor readings (`L:26.4C D:24.1C`) and the current system mode.
-* **Status LEDs**: 
+* **Status LEDs**:
   * Green (Pin 6): Network/Bridge Online.
   * Blue (Pin 7): Vent Actuator Open.
   * Red (Pin 8): Critical Heat Warning.
-* **Active Buzzer** (Pin 10): Uses a custom software-based pulse (`customBeep`) to avoid hardware timer conflicts with the `IRremote` library.
+* **Active Buzzer** (Pin 10): Uses a custom software-based pulse (`customBeep`) to avoid hardware Timer 2 conflicts with the `IRremote` library.
 
 ### Core Hardware Features
 * **Watchdog Failsafe**: Requires a `PING` from the Python bridge every 10 seconds. If the bridge crashes or loses internet, the Arduino reverts to `AUTO` mode to protect the crops.
@@ -37,7 +36,6 @@ The Arduino UNO acts as the physical brain, running a robust loop that operates 
 ---
 
 ## 2. Python Serial Bridge
-
 The `bridge.py` script acts as the middleware, translating local USB Serial packets into global Firebase updates.
 
 ### Core Bridge Features
@@ -50,11 +48,10 @@ The `bridge.py` script acts as the middleware, translating local USB Serial pack
 ---
 
 ## 3. Web Dashboard (Next.js)
-
 A highly reactive, modern UI built with Next.js, Tailwind CSS, and Recharts.
 
 ### Core Dashboard Features
-* **Live Dual-Sensor Display**: Prominently displays the active temperature (prioritizing the LM35) while explicitly breaking down both the LM35 and DHT11 live feeds to match the physical LCD perfectly.
+* **Live Dual-Sensor Display**: Prominently displays the active temperature (prioritizing the stable DHT11 reading) while explicitly breaking down both the LM35 and DHT11 live feeds to match the physical LCD perfectly.
 * **Remote Override Controls**: Allows the user to force the vents `OPEN`, `CLOSED`, or return to `AUTO` logic.
 * **Dynamic Threshold Slider**: Drag the slider to instantly update the Arduino's internal `thresholdTemp` variable over the internet.
 * **Real-time Telemetry Chart**: Plots historical data points for both the LM35 (dashed line) and DHT11 (solid line) on an overlapping graph, including a visual reference line for the active threshold.
@@ -64,7 +61,9 @@ A highly reactive, modern UI built with Next.js, Tailwind CSS, and Recharts.
 ---
 
 ## Getting Started
-
-1. **Deploy the Hardware**: Upload `arduino/greenhouse/greenhouse.ino` to the Arduino.
-2. **Start the Bridge**: Run `python bridge.py` on the connected host machine. Ensure `firebase-key.json` is present.
-3. **View the Dashboard**: Visit your Vercel deployment URL to monitor and control the greenhouse from anywhere in the world!
+1. **Deploy the Hardware**: Upload `arduino/greenhouse/greenhouse.ino` to the Arduino. Verify the LCD pins and servo power connections.
+2. **Configure Database Connections**:
+   * Ensure `firebase-key.json` (Admin SDK) is present in your Python bridge directory.
+   * Add your Firebase Client config (`NEXT_PUBLIC_FIREBASE_API_KEY`, etc.) to the `.env.local` file in your Next.js project.
+3. **Start the Bridge**: Run `python bridge.py` on the connected host machine.
+4. **View the Dashboard**: Visit your local host or Vercel deployment URL to monitor and control the greenhouse from anywhere.
