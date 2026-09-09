@@ -85,7 +85,14 @@ export default function DashboardPage() {
   const { tempLM35, tempDHT, humidity, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline, power } = useGreenhouseSync();
 
   const [themeName, setThemeName] = useState<Theme>('modern');
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const t = themeMap[themeName];
+
+  useEffect(() => {
+    setCurrentTime(new Date()); // Set initial time on client to avoid hydration mismatch
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   if (loading || !user) {
     return (
@@ -146,8 +153,13 @@ export default function DashboardPage() {
             </div>
 
             {/* User Auth Info & Logout */}
-            <div className="flex items-center gap-2 border-l border-slate-200/20 pl-4">
-              <span className={`hidden md:inline text-xs font-medium opacity-70 ${t.title}`}>
+            <div className="flex items-center gap-3 border-l border-slate-200/20 pl-4">
+              {currentTime && (
+                <span className={`hidden md:inline font-mono text-sm tracking-widest ${t.title}`}>
+                  {currentTime.toLocaleTimeString([], { hour12: false })}
+                </span>
+              )}
+              <span className={`hidden lg:inline text-xs font-medium opacity-70 ${t.title}`}>
                 {user.email}
               </span>
               <button 
@@ -176,7 +188,14 @@ export default function DashboardPage() {
         <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <h1 className={`text-3xl font-bold tracking-tight ${t.title}`}>Farmhouse Dashboard</h1>
-            <p className={`mt-1 ${t.subtitle}`}>Real-time telemetry and climate control for Ruiru.</p>
+            <div className={`mt-1 flex items-center gap-3 ${t.subtitle}`}>
+              <p>Real-time telemetry and climate control.</p>
+              {currentTime && (
+                <span className="sm:hidden font-mono text-sm tracking-widest bg-black/5 dark:bg-white/5 px-2 py-0.5 rounded-md">
+                  {currentTime.toLocaleTimeString([], { hour12: false })}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Mobile Only: Theme Switcher & Power */}
