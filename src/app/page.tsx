@@ -6,8 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Leaf, Thermometer, Wind, Settings2, AlertCircle, Activity, CheckCircle2, Zap, Droplets } from 'lucide-react';
+import { Leaf, Thermometer, Wind, Settings2, AlertCircle, Activity, CheckCircle2, Zap, Droplets, LogOut } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/components/AuthContext';
+import { useRouter } from 'next/navigation';
+import { signOut } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 type Theme = 'modern' | 'cyberpunk' | 'eco';
 
@@ -69,10 +73,28 @@ const themeMap = {
 };
 
 export default function DashboardPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
+
   const { tempLM35, tempDHT, humidity, mode, updateMode, threshold, updateThreshold, ventState, history, isBridgeOnline, power } = useGreenhouseSync();
 
   const [themeName, setThemeName] = useState<Theme>('modern');
   const t = themeMap[themeName];
+
+  if (loading || !user) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-emerald-500">
+        <Leaf className="h-10 w-10 animate-pulse mb-4" />
+        <p className="font-semibold tracking-widest uppercase text-sm">Authenticating...</p>
+      </div>
+    );
+  }
 
   // Derive active temp prioritizing LM35 over DHT if valid
   const activeTemp = tempLM35 > 0 ? tempLM35 : tempDHT;
@@ -120,7 +142,21 @@ export default function DashboardPage() {
                 {isBridgeOnline && <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${themeName === 'cyberpunk' ? 'bg-emerald-400' : 'bg-emerald-400'}`}></span>}
                 <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isBridgeOnline ? (themeName === 'cyberpunk' ? 'bg-emerald-400 shadow-[0_0_5px_#34d399]' : 'bg-emerald-500') : 'bg-red-500'}`}></span>
               </span>
-              {isBridgeOnline ? 'Live Sync' : 'SYSTEM OFFLINE'}
+              <span className="hidden sm:inline">{isBridgeOnline ? 'Live Sync' : 'OFFLINE'}</span>
+            </div>
+
+            {/* User Auth Info & Logout */}
+            <div className="flex items-center gap-2 border-l border-slate-200/20 pl-4">
+              <span className={`hidden md:inline text-xs font-medium opacity-70 ${t.title}`}>
+                {user.email}
+              </span>
+              <button 
+                onClick={() => signOut(auth)}
+                className={`p-1.5 rounded-md hover:bg-red-500/10 hover:text-red-500 transition-colors ${t.subtitle}`}
+                title="Log Out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </div>
