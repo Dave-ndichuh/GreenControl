@@ -137,9 +137,25 @@ export default function DashboardPage() {
       <main className="max-w-6xl mx-auto px-4 py-8">
         
         {/* Page Header */}
-        <div className="mb-8">
-          <h1 className={`text-3xl font-bold tracking-tight ${t.title}`}>Farmhouse Dashboard</h1>
-          <p className={`mt-1 ${t.subtitle}`}>Real-time telemetry and climate control for Ruiru.</p>
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <h1 className={`text-3xl font-bold tracking-tight ${t.title}`}>Farmhouse Dashboard</h1>
+            <p className={`mt-1 ${t.subtitle}`}>Real-time telemetry and climate control for Ruiru.</p>
+          </div>
+
+          {/* Mobile Only: Theme Switcher & Power */}
+          <div className="flex sm:hidden items-center gap-3">
+            <div className={`p-1 rounded-full text-xs font-semibold flex-1 flex justify-between ${themeName === 'cyberpunk' ? 'bg-emerald-950/50 border border-emerald-900/50' : 'bg-black/5'}`}>
+              <button onClick={() => setThemeName('modern')} className={`px-3 py-1 rounded-full transition-all ${themeName === 'modern' ? 'bg-white shadow-sm text-slate-900' : 'opacity-60 hover:opacity-100'}`}>Modern</button>
+              <button onClick={() => setThemeName('cyberpunk')} className={`px-3 py-1 rounded-full transition-all ${themeName === 'cyberpunk' ? 'bg-emerald-950 text-emerald-400 shadow-md shadow-emerald-900/50 border border-emerald-500/30' : 'opacity-60 hover:opacity-100'}`}>Cyberpunk</button>
+              <button onClick={() => setThemeName('eco')} className={`px-3 py-1 rounded-full transition-all ${themeName === 'eco' ? 'bg-[#e7e5e4] text-stone-900 shadow-sm' : 'opacity-60 hover:opacity-100'}`}>Eco</button>
+            </div>
+            
+            <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-full whitespace-nowrap ${themeName === 'cyberpunk' ? 'text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 shadow-[0_0_10px_rgba(250,204,21,0.2)]' : 'text-amber-700 bg-amber-50 border border-amber-200'}`}>
+              <Zap className={`h-3.5 w-3.5 ${themeName === 'cyberpunk' ? 'animate-pulse' : ''}`} />
+              {power} mW
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
